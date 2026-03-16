@@ -31,7 +31,7 @@ $1.31 | ⏱ 12m 3s | +142 -38 ▲
 
 ## Install
 
-### Quick Install (2 steps)
+### Quick Install
 
 ```bash
 # Step 1: Add the marketplace
@@ -41,22 +41,27 @@ $1.31 | ⏱ 12m 3s | +142 -38 ▲
 /plugin install claude-statusline-hud
 ```
 
-The statusline auto-configures on your next session start — no manual setup needed.
+The plugin auto-configures on the next session start via a `SessionStart` hook. If the statusline doesn't appear, run this one-liner:
+
+```bash
+# Manual setup (only if auto-config didn't work)
+bash ~/.claude/plugins/cache/claude-statusline-hud/claude-statusline-hud/1.1.0/scripts/setup.sh
+```
 
 ### Uninstall
 
 ```bash
-# Remove the plugin
-/plugin uninstall claude-statusline-hud
+# Step 1: Remove statusLine config
+bash ~/.claude/plugins/cache/claude-statusline-hud/claude-statusline-hud/*/scripts/teardown.sh
 
-# Clean up statusLine config from settings
-bash ~/.claude/plugins/cache/claude-statusline-hud/*/scripts/teardown.sh
+# Step 2: Remove the plugin
+/plugin uninstall claude-statusline-hud
 ```
 
 ### Alternative: Test Locally
 
 ```bash
-claude --plugin-dir /path/to/claude-statusline-hud
+claude --plugin-dir /path/to/claude-statusline-hud/plugins/claude-statusline-hud
 ```
 
 ## Presets
