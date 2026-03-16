@@ -7,6 +7,12 @@ A comprehensive, btop-inspired statusline HUD plugin for Claude Code. Cross-plat
 
 ## Preview
 
+![Wide terminal — full preset](assets/preview-wide.png)
+*Full preset on wide terminal: identity, live activity, context/usage bars, session stats*
+
+![Normal terminal — full preset](assets/preview-normal.png)
+*Full preset on normal terminal: adaptive layout with all key metrics*
+
 ### Presets × Terminal Width
 
 <details>
