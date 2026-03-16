@@ -239,28 +239,86 @@ CTX_BAR=$(make_bar "$PCT" "$BAR_W")
 CTX_WARN=""
 [ "$EXCEEDS_200K" = "true" ] && CTX_WARN=" ${BOLD}${BG_YELLOW} ⚠ ${RST}"
 
-# Rate limit (cached 60s)
+# ---- Rate limit token discovery (tries multiple sources) ----
 USAGE_CACHE="/tmp/.claude_sl_usage"
+USAGE_ERR_CACHE="/tmp/.claude_sl_usage_err"
 USAGE_JSON=""
+RL_ERR=""
+
+get_oauth_token() {
+  local tk=""
+
+  # Source 1: macOS Keychain (multiple possible service names)
+  if is_mac; then
+    for svc in "Claude Code-credentials" "claude-code-credentials" "Claude-credentials"; do
+      tk=$(security find-generic-password -s "$svc" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
+    done
+    # Also try account-based lookup
+    tk=$(security find-generic-password -a "claude-code" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+    [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
+  fi
+
+  # Source 2: Credentials JSON file (Linux primary, macOS fallback)
+  for cred_file in \
+    "$HOME/.claude/credentials.json" \
+    "$HOME/.config/claude/credentials.json" \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/claude-code/credentials.json"; do
+    if [ -f "$cred_file" ]; then
+      tk=$(jq -r '.claudeAiOauth.accessToken // empty' "$cred_file" 2>/dev/null)
+      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
+      # Try alternate key paths
+      tk=$(jq -r '.oauthAccessToken // .accessToken // empty' "$cred_file" 2>/dev/null)
+      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
+    fi
+  done
+
+  # Source 3: Environment variable (user can set as override)
+  if [ -n "${CLAUDE_OAUTH_TOKEN:-}" ]; then
+    printf '%s' "$CLAUDE_OAUTH_TOKEN"
+    return 0
+  fi
+
+  return 1
+}
+
 if [ "$(file_age "$USAGE_CACHE")" -lt 60 ]; then
   USAGE_JSON=$(cat "$USAGE_CACHE")
 else
-  TK=""
-  if is_mac; then
-    TK=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-  elif [ -f "$HOME/.claude/credentials.json" ]; then
-    TK=$(jq -r '.claudeAiOauth.accessToken // empty' "$HOME/.claude/credentials.json" 2>/dev/null)
-  fi
+  TK=$(get_oauth_token)
   if [ -n "$TK" ]; then
-    USAGE_JSON=$(curl -s --max-time 3 "https://api.anthropic.com/api/oauth/usage" \
+    RESP=$(curl -s --max-time 5 -w '\n%{http_code}' "https://api.anthropic.com/api/oauth/usage" \
       -H "Accept: application/json" -H "Content-Type: application/json" \
       -H "Authorization: Bearer $TK" -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
-    if [ -n "$USAGE_JSON" ] && printf '%s' "$USAGE_JSON" | jq -e '.five_hour' >/dev/null 2>&1; then
+    HTTP_CODE=$(printf '%s' "$RESP" | tail -1)
+    BODY=$(printf '%s' "$RESP" | sed '$d')
+
+    if [ "$HTTP_CODE" = "200" ] && printf '%s' "$BODY" | jq -e '.five_hour' >/dev/null 2>&1; then
+      USAGE_JSON="$BODY"
       printf '%s' "$USAGE_JSON" > "$USAGE_CACHE"
-    else USAGE_JSON=""; fi
+      rm -f "$USAGE_ERR_CACHE" 2>/dev/null
+    elif [ "$HTTP_CODE" = "401" ]; then
+      RL_ERR="token expired"
+      printf '%s' "$RL_ERR" > "$USAGE_ERR_CACHE"
+    elif [ "$HTTP_CODE" = "403" ]; then
+      RL_ERR="not on Max plan"
+      printf '%s' "$RL_ERR" > "$USAGE_ERR_CACHE"
+    else
+      RL_ERR="http ${HTTP_CODE}"
+      printf '%s' "$RL_ERR" > "$USAGE_ERR_CACHE"
+    fi
+  else
+    RL_ERR="no token"
+    printf '%s' "$RL_ERR" > "$USAGE_ERR_CACHE"
   fi
 fi
 
+# If no fresh data and we have a cached error, load it
+if [ -z "$USAGE_JSON" ] && [ -z "$RL_ERR" ] && [ -f "$USAGE_ERR_CACHE" ]; then
+  RL_ERR=$(cat "$USAGE_ERR_CACHE")
+fi
+
+# ---- Build rate limit display ----
 RL_DISPLAY=""
 if [ -n "$USAGE_JSON" ]; then
   U5=$(printf '%s' "$USAGE_JSON" | jq -r '.five_hour.utilization // 0' | cut -d. -f1)
@@ -274,15 +332,21 @@ if [ -n "$USAGE_JSON" ]; then
   U7_D=$((U7_TOTAL_H / 24)); U7_H=$((U7_TOTAL_H % 24))
 
   if [ "$TIER" = "compact" ]; then
-    # Compact: drop time breakdowns
     RL_DISPLAY="${DIM}5h${RST} ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST}${SEP}${DIM}7d${RST} ${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST}"
   else
     RL_DISPLAY="${DIM}Usage${RST}  ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST} ${DIM}(${U5_H}h ${U5_M}m / 5h)${RST}${SEP}${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST} ${DIM}(${U7_D}d ${U7_H}h / 7d)${RST}"
   fi
+else
+  # Always show usage section — with error hint so user knows why
+  if [ "$TIER" = "compact" ]; then
+    RL_DISPLAY="${DIM}usage ${YELLOW}--${RST}"
+  else
+    RL_DISPLAY="${DIM}Usage${RST}  ${YELLOW}${BOLD}--${RST} ${DIM}(${RL_ERR:-unavailable})${RST}"
+  fi
 fi
 
 R2="${DIM}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${BOLD}${PCT}%${RST}${CTX_WARN}"
-[ -n "$RL_DISPLAY" ] && R2="${R2}${SEP}${RL_DISPLAY}"
+R2="${R2}${SEP}${RL_DISPLAY}"
 printf '%b\n' "$R2"
 
 [ "$PRESET" = "essential" ] && exit 0
