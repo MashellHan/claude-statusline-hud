@@ -51,39 +51,41 @@ Context ██████ 42% | 5h ██████ 6% | 7d █████�
 </details>
 
 <details open>
-<summary><b>full</b> — 3 rows (default)</summary>
+<summary><b>full</b> — 3–4 rows (default)</summary>
 
 **Wide (≥100 cols):**
 ```
-[Opus 4.6 (1M context) | Max] | my-project |  main ✓ ↑2 | ⚡ agent
-Context ██████████ 42%  | Usage  ██░░░░░░░░ 6% (0h 18m / 5h) | ██████████ 23% (1d 14h / 7d)
-$1.31 | ⏱ 12m 3s (api 68%) | +142 -38 ▲ | cache 87% | 1k/min
+[Opus 4.6 (1M context) | Max] │ my-project │  main ✓ ↑2 │ ⚡ agent
+Context ██████████ 42% 45k/200k │ Usage  ██░░░░░░░░ 6% (0h 18m / 5h) │ ██████████ 23% (1d 14h / 7d)
+› ◐ Edit auth.ts  ✓ Read ×3  │  ▸ Fix auth bug (2/5)  │  ⚡ explore
+$1.31 │ ⏱ 12m 3s (api 68%) │ +142 -38 ▲ │ cache 87% │ 1k/min
 ```
 
-**Normal (70–99 cols):**
+**At high context (85%+), token breakdown appears:**
 ```
-[Opus 4.6 | Max] | my-project |  main ✓
-Context ████████ 42%  | Usage  ████████ 6% (0h 18m / 5h) | ████████ 23% (1d 14h / 7d)
-$1.31 | ⏱ 12m 3s (api 68%) | +142 -38 ▲ | cache 87% | 1k/min
+Context █████████░ 87% 174k/200k [in:30k cch:140k out:4k] ⚠
 ```
+
+**Activity row only shows when tools/todos/agents are active — otherwise hidden.**
 
 **Compact (<70 cols):**
 ```
-[Opus | Max] | my-project |  main ✓
-Context ██████ 42% | 5h ██████ 6% | 7d ██████ 23%
-$1.31 | ⏱ 12m 3s | +142 -38 ▲
+[Opus | Max] │ my-project │  main ✓
+Context ██████ 42% │ 5h ██████ 6% │ 7d ██████ 23%
+$1.31 │ ⏱ 12m 3s │ +142 -38 ▲
 ```
 </details>
 
 <details>
-<summary><b>vitals</b> — 4 rows</summary>
+<summary><b>vitals</b> — 4–5 rows</summary>
 
 **Wide (≥100 cols):**
 ```
-[Opus 4.6 (1M context) | Max] | my-project |  main ✓ ↑2 | ⚡ agent
-Context ██████████ 42%  | Usage  ██░░░░░░░░ 6% (0h 18m / 5h) | ██████████ 23% (1d 14h / 7d)
-$1.31 | ⏱ 12m 3s (api 68%) | +142 -38 ▲ | cache 87% | 1k/min
-cpu ██▌  35% | mem ███▊ 15G/16G | gpu █    11% | disk ▋   15G/926G | bat ████ 80% | load 2.41
+[Opus 4.6 (1M context) | Max] │ my-project │  main ✓ ↑2 │ ⚡ agent
+Context ██████████ 42% 45k/200k │ Usage  ██░░░░░░░░ 6% (0h 18m / 5h) │ ██████████ 23% (1d 14h / 7d)
+› ◐ Edit auth.ts  ✓ Read ×3  │  ▸ Fix auth bug (2/5)
+$1.31 │ ⏱ 12m 3s (api 68%) │ +142 -38 ▲ │ cache 87% │ 1k/min
+cpu ██▌  35% │ mem ███▊ 15G/16G │ gpu █    11% │ disk ▋   15G/926G │ bat ████ 80% │ load 2.41
 ```
 
 **Normal (70–99 cols):**
@@ -143,9 +145,9 @@ claude --plugin-dir /path/to/claude-statusline-hud/plugins/claude-statusline-hud
 | Preset | Rows | What you see |
 |---|---|---|
 | `minimal` | 1 | Model, directory, git branch & status |
-| `essential` | 2 | + Context window bar, rate limit bars with time breakdowns |
-| **`full`** | **3** | **+ Cost, duration, lines changed, cache hit rate, throughput (default)** |
-| `vitals` | 4 | + CPU, memory, GPU, disk, battery, load average |
+| `essential` | 2 | + Context bar (with token counts & autocompact), rate limit bars |
+| **`full`** | **3–4** | **+ Live activity (tools/todos/agents), session stats (default)** |
+| `vitals` | 4–5 | + System vitals (CPU, memory, GPU, disk, battery, load) |
 
 ### Switch preset
 
@@ -186,12 +188,22 @@ The statusline automatically adapts to your terminal width:
 ### Row 2 — Capacity Bars
 | Element | Description |
 |---|---|
-| `Context` | Context window fill % — how much conversation fits before compaction |
-| `⚠` | Warning when tokens exceed 200k |
+| `Context 42% 45k/200k` | Context window fill with token counts (wide mode) |
+| `[in:30k cch:140k out:4k]` | Token breakdown at 85%+ context — input, cached, output |
+| `⚠` | Warning when tokens exceed 200k (autocompact pressure) |
 | `Usage 5h` | Rolling 5-hour rate limit with time consumed / total |
 | `Usage 7d` | Rolling 7-day rate limit with time consumed / total |
+| `syncing` | Shown when using stale data during API backoff |
 
-### Row 3 — Session Stats
+### Row 3 — Live Activity (conditional, only when active)
+| Element | Description |
+|---|---|
+| `◐ Edit auth.ts` | Tool currently running with its target file/pattern |
+| `✓ Read ×3` | Completed tool with invocation count |
+| `▸ Fix auth bug (2/5)` | Active todo/task with completion progress |
+| `⚡ explore` | Running subagent with description |
+
+### Row 4 — Session Stats
 | Element | Description |
 |---|---|
 | `$cost` | Total API cost this session (USD, rounded to 2 decimals) |
@@ -201,7 +213,7 @@ The statusline automatically adapts to your terminal width:
 | `cache N%` | Prompt cache hit rate — higher means cheaper and faster |
 | `Nk/min` | Output token throughput |
 
-### Row 4 — System Vitals (btop-style)
+### Row 5 — System Vitals (btop-style)
 | Element | Description |
 |---|---|
 | `cpu` | User + system CPU usage with sub-character precision bar |

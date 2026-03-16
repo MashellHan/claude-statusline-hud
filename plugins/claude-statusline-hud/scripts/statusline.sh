@@ -6,8 +6,8 @@
 #
 #    minimal   — 1 row:  [Model | Max]  Dir  Git
 #    essential — 2 rows: + Context bar, Rate-limit bars
-#    full      — 3 rows: + Cost, Duration, Lines, Cache, Throughput  (default)
-#    vitals    — 4 rows: + CPU, Memory, GPU, Disk, Battery, Load
+#    full      — 3–4 rows: + Activity (when active), Stats  (default)
+#    vitals    — 4–5 rows: + System vitals (CPU, Mem, GPU, Disk, Battery)
 # ================================================================
 
 set -f  # disable globbing for safety
@@ -21,14 +21,9 @@ is_linux() { [ "$OS" = "Linux" ]; }
 
 # --- Terminal width detection ---
 COLS="${COLUMNS:-$(tput cols 2>/dev/null || echo 100)}"
-# Width tiers: compact (<70), normal (70-99), wide (100+)
-if [ "$COLS" -lt 70 ] 2>/dev/null; then
-  TIER="compact"
-elif [ "$COLS" -lt 100 ] 2>/dev/null; then
-  TIER="normal"
-else
-  TIER="wide"
-fi
+if [ "$COLS" -lt 70 ] 2>/dev/null; then TIER="compact"
+elif [ "$COLS" -lt 100 ] 2>/dev/null; then TIER="normal"
+else TIER="wide"; fi
 
 # --- Determine preset ---
 PRESET="${CLAUDE_STATUSLINE_PRESET:-}"
@@ -57,23 +52,19 @@ INPUT_TOK=$(j '.context_window.current_usage.input_tokens // 0')
 CACHE_CREATE=$(j '.context_window.current_usage.cache_creation_input_tokens // 0')
 CACHE_READ=$(j '.context_window.current_usage.cache_read_input_tokens // 0')
 TOTAL_OUT=$(j '.context_window.total_output_tokens // 0')
+TRANSCRIPT=$(j '.transcript_path // ""')
+CTX_SIZE=$(j '.context_window.context_window_size // 200000')
 
 # --- Smart directory name ---
-if [ "$DIR" = "$HOME" ]; then
-  DIR_NAME="~"
-elif [ -n "$DIR" ]; then
-  # Show project-relative path or last component
-  DIR_NAME="${DIR##*/}"
-else
-  DIR_NAME=""
-fi
+if [ "$DIR" = "$HOME" ]; then DIR_NAME="~"
+elif [ -n "$DIR" ]; then DIR_NAME="${DIR##*/}"
+else DIR_NAME=""; fi
 
 # --- Adaptive model label ---
-# "Opus 4.6 (1M context)" → compact: "Opus" | normal: "Opus 4.6" | wide: full
 case "$TIER" in
-  compact) MODEL_LABEL="${MODEL%% *}" ;;   # "Opus"
-  normal)  MODEL_LABEL="${MODEL%% (*}" ;;  # "Opus 4.6"
-  wide)    MODEL_LABEL="$MODEL" ;;         # "Opus 4.6 (1M context)"
+  compact) MODEL_LABEL="${MODEL%% *}" ;;
+  normal)  MODEL_LABEL="${MODEL%% (*}" ;;
+  wide)    MODEL_LABEL="$MODEL" ;;
 esac
 
 # --- Adaptive bar widths ---
@@ -85,11 +76,11 @@ esac
 
 # --- Colors ---
 CYAN=$'\033[36m'    GREEN=$'\033[32m'   YELLOW=$'\033[33m'  RED=$'\033[31m'
-BLUE=$'\033[34m'    MAGENTA=$'\033[35m'
-RST=$'\033[0m'      BOLD=$'\033[1m'     DIM=$'\033[2m'
+BLUE=$'\033[34m'    MAGENTA=$'\033[35m' WHITE=$'\033[97m'
+RST=$'\033[0m'      BOLD=$'\033[1m'     DIM=$'\033[2m'     ITAL=$'\033[3m'
 BG_YELLOW=$'\033[43m'
 
-SEP=" ${DIM}|${RST} "
+SEP=" ${DIM}│${RST} "
 
 # --- Helpers ---
 make_bar() {
@@ -112,16 +103,11 @@ mini_bar() {
   local width=4 total=$((pct * width))
   local full=$((total / 100)) remainder=$(( (total % 100) * 8 / 100 ))
   local bar="" i=0
-  while [ "$i" -lt "$full" ] && [ "$i" -lt "$width" ]; do
-    bar="${bar}█"; i=$((i+1))
-  done
+  while [ "$i" -lt "$full" ] && [ "$i" -lt "$width" ]; do bar="${bar}█"; i=$((i+1)); done
   if [ "$i" -lt "$width" ] && [ "$remainder" -gt 0 ]; then
-    eval "bar=\"\${bar}\${chars_${remainder}}\""
-    i=$((i+1))
+    eval "bar=\"\${bar}\${chars_${remainder}}\""; i=$((i+1))
   fi
-  while [ "$i" -lt "$width" ]; do
-    bar="${bar} "; i=$((i+1))
-  done
+  while [ "$i" -lt "$width" ]; do bar="${bar} "; i=$((i+1)); done
   printf '%s' "$bar"
 }
 
@@ -153,15 +139,11 @@ fmt_tok() {
 
 fmt_cost() { printf '$%s' "$(printf '%s' "$1" | awk '{printf "%.2f", $1}')"; }
 
-# --- Cross-platform file age check ---
 file_age() {
   local f="$1"
   [ -f "$f" ] || { echo 9999; return; }
-  if is_mac; then
-    echo $(( $(date +%s) - $(stat -f%m "$f" 2>/dev/null || echo 0) ))
-  else
-    echo $(( $(date +%s) - $(stat -c%Y "$f" 2>/dev/null || echo 0) ))
-  fi
+  if is_mac; then echo $(( $(date +%s) - $(stat -f%m "$f" 2>/dev/null || echo 0) ))
+  else echo $(( $(date +%s) - $(stat -c%Y "$f" 2>/dev/null || echo 0) )); fi
 }
 
 NOW=$(date +%s)
@@ -204,11 +186,8 @@ if [ -n "$DIR" ]; then
   GAB=$(printf '%s' "$GIT_INFO" | cut -d'|' -f3)
   if [ -n "$GB" ]; then
     GIT_DISPLAY="${MAGENTA} ${GB}${RST}"
-    if [ -n "$GD" ]; then
-      GIT_DISPLAY="${GIT_DISPLAY} ${YELLOW}[${GD}]${RST}"
-    else
-      GIT_DISPLAY="${GIT_DISPLAY} ${GREEN}✓${RST}"
-    fi
+    if [ -n "$GD" ]; then GIT_DISPLAY="${GIT_DISPLAY} ${YELLOW}[${GD}]${RST}"
+    else GIT_DISPLAY="${GIT_DISPLAY} ${GREEN}✓${RST}"; fi
     [ -n "$GAB" ] && GIT_DISPLAY="${GIT_DISPLAY} ${CYAN}${GAB}${RST}"
   fi
 fi
@@ -217,10 +196,10 @@ fi
 BADGES=""
 [ -n "$VIM_MODE" ] && BADGES="${BADGES}${SEP}${BOLD}${BLUE}${VIM_MODE}${RST}"
 [ -n "$AGENT_NAME" ] && BADGES="${BADGES}${SEP}${BOLD}${CYAN}⚡ ${AGENT_NAME}${RST}"
-[ -n "$WT_NAME" ] && BADGES="${BADGES}${SEP}${DIM}🌿 ${WT_NAME}${WT_BRANCH:+ → ${WT_BRANCH}}${RST}"
+[ -n "$WT_NAME" ] && BADGES="${BADGES}${SEP}${DIM}🌿 ${WT_NAME}${WT_BRANCH:+→${WT_BRANCH}}${RST}"
 
 # =============================================================
-# ROW 1: [Model | Max]  Dir  Git  Badges          [ALL PRESETS]
+# ROW 1: [Model | Max] │ Dir │ Git │ Badges     [ALL PRESETS]
 # =============================================================
 R1="${BOLD}${CYAN}[${MODEL_LABEL} | Max]${RST}"
 R1="${R1}${SEP}${BOLD}${GREEN}${DIR_NAME}${RST}"
@@ -231,18 +210,41 @@ printf '%b\n' "$R1"
 [ "$PRESET" = "minimal" ] && exit 0
 
 # =============================================================
-# ROW 2: Context bar | Usage 5h (time) | 7d (time)  [ESSENTIAL+]
+# ROW 2: Context bar [token breakdown] │ Usage bars  [ESSENTIAL+]
 # =============================================================
 
-CTX_CLR=$(bar_color "$PCT")
-CTX_BAR=$(make_bar "$PCT" "$BAR_W")
+# --- Autocompact buffer estimation ---
+# When context is high, the actual pressure is higher than reported
+# because autocompact adds overhead. Inflate by ~10% above 70%.
+ADJ_PCT=$PCT
+if [ "$PCT" -ge 70 ] 2>/dev/null; then
+  ADJ_PCT=$(( PCT + (PCT - 70) * 10 / 30 ))
+  [ "$ADJ_PCT" -gt 100 ] && ADJ_PCT=100
+fi
+
+CTX_CLR=$(bar_color "$ADJ_PCT")
+CTX_BAR=$(make_bar "$ADJ_PCT" "$BAR_W")
 CTX_WARN=""
 [ "$EXCEEDS_200K" = "true" ] && CTX_WARN=" ${BOLD}${BG_YELLOW} ⚠ ${RST}"
 
+# --- Token breakdown at high context (85%+) ---
+TOK_DETAIL=""
+TOTAL_INPUT=$((INPUT_TOK + CACHE_CREATE + CACHE_READ))
+if [ "$PCT" -ge 85 ] 2>/dev/null && [ "$TOTAL_INPUT" -gt 0 ] && [ "$TIER" != "compact" ]; then
+  TOK_DETAIL=" ${DIM}[in:$(fmt_tok $INPUT_TOK) cch:$(fmt_tok $CACHE_READ) out:$(fmt_tok $TOTAL_OUT)]${RST}"
+fi
+
+# --- Context display: % + optional tokens ---
+if [ "$TIER" = "wide" ] && [ "$TOTAL_INPUT" -gt 0 ]; then
+  CTX_TOTAL=$((TOTAL_INPUT + TOTAL_OUT))
+  CTX_LABEL="${BOLD}${PCT}%${RST} ${DIM}$(fmt_tok $CTX_TOTAL)/$(fmt_tok $CTX_SIZE)${RST}"
+else
+  CTX_LABEL="${BOLD}${PCT}%${RST}"
+fi
+
 # ---- Rate limit: token discovery ----
-# Inspired by claude-hud's approach (github.com/jarrodwatts/claude-hud)
 USAGE_CACHE="/tmp/.claude_sl_usage"
-USAGE_META="/tmp/.claude_sl_usage_meta"  # tracks 429 count + error state
+USAGE_META="/tmp/.claude_sl_usage_meta"
 USAGE_LOCK="/tmp/.claude_sl_usage.lock"
 USAGE_JSON=""
 RL_SYNCING=0
@@ -250,65 +252,40 @@ RL_ERR=""
 
 get_oauth_token() {
   local tk="" cred_json=""
-
-  # Source 1: macOS Keychain (multiple possible service names)
   if is_mac; then
     for svc in "Claude Code-credentials" "claude-code-credentials" "Claude-credentials"; do
       cred_json=$(security find-generic-password -s "$svc" -w 2>/dev/null)
       [ -z "$cred_json" ] && continue
-      # Check token expiry before using
       local expires_at=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.expiresAt // 0' 2>/dev/null)
-      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then
-        continue  # token expired, try next source
-      fi
+      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then continue; fi
       tk=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
       [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
     done
-    # Account-based lookup
     cred_json=$(security find-generic-password -a "claude-code" -w 2>/dev/null)
     if [ -n "$cred_json" ]; then
       tk=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
       [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
     fi
   fi
-
-  # Source 2: Credentials JSON files (Linux primary, macOS fallback)
-  for cred_file in \
-    "$HOME/.claude/.credentials.json" \
-    "$HOME/.claude/credentials.json" \
-    "$HOME/.config/claude/credentials.json" \
-    "${XDG_CONFIG_HOME:-$HOME/.config}/claude-code/credentials.json"; do
+  for cred_file in "$HOME/.claude/.credentials.json" "$HOME/.claude/credentials.json" \
+    "$HOME/.config/claude/credentials.json" "${XDG_CONFIG_HOME:-$HOME/.config}/claude-code/credentials.json"; do
     if [ -f "$cred_file" ]; then
-      # Check expiry
       local expires_at=$(jq -r '.claudeAiOauth.expiresAt // 0' "$cred_file" 2>/dev/null)
-      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then
-        continue
-      fi
+      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then continue; fi
       tk=$(jq -r '.claudeAiOauth.accessToken // empty' "$cred_file" 2>/dev/null)
       [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
     fi
   done
-
-  # Source 3: Environment variable override
   [ -n "${CLAUDE_OAUTH_TOKEN:-}" ] && { printf '%s' "$CLAUDE_OAUTH_TOKEN"; return 0; }
-
   return 1
 }
 
 # ---- Rate limit: fetch with exponential backoff ----
-# Cache 5min on success. On 429, exponential backoff: 60s → 120s → 240s → 300s (cap).
-# Always show last known good data during backoff with "(syncing...)" indicator.
-
-# Load meta state: 429_COUNT and LAST_ERR
 RATE_LIMITED_COUNT=0
-if [ -f "$USAGE_META" ]; then
-  eval "$(cat "$USAGE_META")"  # sets RATE_LIMITED_COUNT, LAST_ERR
-fi
+if [ -f "$USAGE_META" ]; then eval "$(cat "$USAGE_META")"; fi
 
-# Calculate backoff TTL
-CACHE_TTL=300  # 5 minutes default
+CACHE_TTL=300
 if [ "$RATE_LIMITED_COUNT" -gt 0 ]; then
-  # Exponential: 60 * 2^(count-1), capped at 300s
   BACKOFF=$((60 * (1 << (RATE_LIMITED_COUNT - 1))))
   [ "$BACKOFF" -gt 300 ] && BACKOFF=300
   CACHE_TTL=$BACKOFF
@@ -316,14 +293,10 @@ fi
 
 if [ "$(file_age "$USAGE_CACHE")" -lt "$CACHE_TTL" ]; then
   USAGE_JSON=$(cat "$USAGE_CACHE")
-  # If we're in backoff, mark as syncing
   [ "$RATE_LIMITED_COUNT" -gt 0 ] && RL_SYNCING=1
 else
-  # File lock: prevent concurrent API calls from multiple renders
   if ( set -o noclobber; echo $$ > "$USAGE_LOCK" ) 2>/dev/null; then
-    # Clean up lock on exit
     trap "rm -f '$USAGE_LOCK'" EXIT
-
     TK=$(get_oauth_token)
     if [ -n "$TK" ]; then
       RESP=$(curl -s --max-time 5 -w '\n%{http_code}' "https://api.anthropic.com/api/oauth/usage" \
@@ -331,7 +304,6 @@ else
         -H "Authorization: Bearer $TK" -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
       HTTP_CODE=$(printf '%s' "$RESP" | tail -1)
       BODY=$(printf '%s' "$RESP" | sed '$d')
-
       if [ "$HTTP_CODE" = "200" ] && printf '%s' "$BODY" | jq -e '.five_hour' >/dev/null 2>&1; then
         USAGE_JSON="$BODY"
         printf '%s' "$USAGE_JSON" > "$USAGE_CACHE"
@@ -339,89 +311,139 @@ else
       elif [ "$HTTP_CODE" = "429" ]; then
         RATE_LIMITED_COUNT=$((RATE_LIMITED_COUNT + 1))
         printf "RATE_LIMITED_COUNT=%d\nLAST_ERR='rate limited'\n" "$RATE_LIMITED_COUNT" > "$USAGE_META"
-        # Use stale cache + syncing indicator
-        if [ -f "$USAGE_CACHE" ]; then
-          USAGE_JSON=$(cat "$USAGE_CACHE")
-          RL_SYNCING=1
-          # Touch cache to reset the age timer for backoff
-          touch "$USAGE_CACHE"
-        else
-          RL_ERR="rate limited"
-        fi
-      elif [ "$HTTP_CODE" = "401" ]; then
-        RL_ERR="token expired"
-        printf "RATE_LIMITED_COUNT=0\nLAST_ERR='token expired'\n" > "$USAGE_META"
-      elif [ "$HTTP_CODE" = "403" ]; then
-        RL_ERR="not on Max plan"
-        printf "RATE_LIMITED_COUNT=0\nLAST_ERR='not on Max plan'\n" > "$USAGE_META"
+        if [ -f "$USAGE_CACHE" ]; then USAGE_JSON=$(cat "$USAGE_CACHE"); RL_SYNCING=1; touch "$USAGE_CACHE"
+        else RL_ERR="rate limited"; fi
+      elif [ "$HTTP_CODE" = "401" ]; then RL_ERR="token expired"
+      elif [ "$HTTP_CODE" = "403" ]; then RL_ERR="not on Max plan"
       else
-        # Transient error — use stale cache
-        if [ -f "$USAGE_CACHE" ]; then
-          USAGE_JSON=$(cat "$USAGE_CACHE")
-          RL_SYNCING=1
-        else
-          RL_ERR="http ${HTTP_CODE:-err}"
-        fi
+        if [ -f "$USAGE_CACHE" ]; then USAGE_JSON=$(cat "$USAGE_CACHE"); RL_SYNCING=1
+        else RL_ERR="http ${HTTP_CODE:-err}"; fi
       fi
-    else
-      RL_ERR="no token"
-    fi
-
-    rm -f "$USAGE_LOCK"
-    trap - EXIT
+    else RL_ERR="no token"; fi
+    rm -f "$USAGE_LOCK"; trap - EXIT
   else
-    # Lock held by another render — just use cache
     [ -f "$USAGE_CACHE" ] && USAGE_JSON=$(cat "$USAGE_CACHE")
-    # Clean up stale locks (>30s)
-    if [ "$(file_age "$USAGE_LOCK")" -gt 30 ]; then
-      rm -f "$USAGE_LOCK"
-    fi
+    [ "$(file_age "$USAGE_LOCK")" -gt 30 ] && rm -f "$USAGE_LOCK"
   fi
 fi
 
-# Fallback to cached error
-if [ -z "$USAGE_JSON" ] && [ -z "$RL_ERR" ] && [ -n "${LAST_ERR:-}" ]; then
-  RL_ERR="$LAST_ERR"
-fi
+[ -z "$USAGE_JSON" ] && [ -z "$RL_ERR" ] && [ -n "${LAST_ERR:-}" ] && RL_ERR="$LAST_ERR"
 
 # ---- Build rate limit display ----
 RL_DISPLAY=""
 SYNC_TAG=""
-[ "$RL_SYNCING" = "1" ] && SYNC_TAG=" ${DIM}(syncing...)${RST}"
+[ "$RL_SYNCING" = "1" ] && SYNC_TAG=" ${DIM}${ITAL}syncing${RST}"
 
 if [ -n "$USAGE_JSON" ]; then
   U5=$(printf '%s' "$USAGE_JSON" | jq -r '.five_hour.utilization // 0' | cut -d. -f1)
   U5_CLR=$(bar_color "$U5"); U5_BAR=$(make_bar "$U5" "$RL_BAR_W")
-  U5_TOTAL_MIN=$((U5 * 300 / 100))
-  U5_H=$((U5_TOTAL_MIN / 60)); U5_M=$((U5_TOTAL_MIN % 60))
-
+  U5_TOTAL_MIN=$((U5 * 300 / 100)); U5_H=$((U5_TOTAL_MIN / 60)); U5_M=$((U5_TOTAL_MIN % 60))
   U7=$(printf '%s' "$USAGE_JSON" | jq -r '.seven_day.utilization // 0' | cut -d. -f1)
   U7_CLR=$(bar_color "$U7"); U7_BAR=$(make_bar "$U7" "$RL_BAR_W")
-  U7_TOTAL_H=$((U7 * 168 / 100))
-  U7_D=$((U7_TOTAL_H / 24)); U7_H=$((U7_TOTAL_H % 24))
-
+  U7_TOTAL_H=$((U7 * 168 / 100)); U7_D=$((U7_TOTAL_H / 24)); U7_H=$((U7_TOTAL_H % 24))
   if [ "$TIER" = "compact" ]; then
     RL_DISPLAY="${DIM}5h${RST} ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST}${SEP}${DIM}7d${RST} ${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST}${SYNC_TAG}"
   else
     RL_DISPLAY="${DIM}Usage${RST}  ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST} ${DIM}(${U5_H}h ${U5_M}m / 5h)${RST}${SEP}${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST} ${DIM}(${U7_D}d ${U7_H}h / 7d)${RST}${SYNC_TAG}"
   fi
 else
-  # Always show usage section with error hint
-  if [ "$TIER" = "compact" ]; then
-    RL_DISPLAY="${DIM}usage ${YELLOW}--${RST}"
-  else
-    RL_DISPLAY="${DIM}Usage${RST}  ${YELLOW}${BOLD}--${RST} ${DIM}(${RL_ERR:-unavailable})${RST}"
-  fi
+  if [ "$TIER" = "compact" ]; then RL_DISPLAY="${DIM}usage ${YELLOW}--${RST}"
+  else RL_DISPLAY="${DIM}Usage${RST}  ${YELLOW}${BOLD}--${RST} ${DIM}(${RL_ERR:-unavailable})${RST}"; fi
 fi
 
-R2="${DIM}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${BOLD}${PCT}%${RST}${CTX_WARN}"
+R2="${DIM}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${TOK_DETAIL}${CTX_WARN}"
 R2="${R2}${SEP}${RL_DISPLAY}"
 printf '%b\n' "$R2"
 
 [ "$PRESET" = "essential" ] && exit 0
 
 # =============================================================
-# ROW 3: Cost | Duration | Lines | Cache | Throughput    [FULL+]
+# ROW 3 (conditional): Live Activity — Tools │ Todos │ Agents
+#   Only shown when there's active work. Parsed from transcript.
+#   Cached 2s to keep performance snappy.                [FULL+]
+# =============================================================
+
+ACTIVITY_CACHE="/tmp/.claude_sl_activity"
+ACTIVITY_LINE=""
+
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+  if [ "$(file_age "$ACTIVITY_CACHE")" -lt 2 ]; then
+    ACTIVITY_LINE=$(cat "$ACTIVITY_CACHE")
+  else
+    # Parse last 100 lines of transcript JSONL for tools, todos, agents
+    ACTIVITY_LINE=$(tail -100 "$TRANSCRIPT" 2>/dev/null | jq -rs '
+      # --- Tools: find recent tool_use and match with tool_result ---
+      [.[] | select(.type == "tool_use" or .type == "tool_result")] as $events |
+
+      # Build tool status map
+      (reduce $events[] as $e ({};
+        if $e.type == "tool_use" then
+          .[$e.id] = {name: $e.name, target: (
+            if ($e.name == "Edit" or $e.name == "Write" or $e.name == "Read") then
+              ($e.input.file_path // "" | split("/") | last)
+            elif ($e.name == "Grep" or $e.name == "Glob") then
+              ($e.input.pattern // "")[0:20]
+            elif $e.name == "Bash" then
+              ($e.input.command // "")[0:25]
+            elif $e.name == "Agent" then
+              ($e.input.description // "agent")
+            else ""
+            end
+          ), done: false}
+        elif $e.type == "tool_result" then
+          .[$e.tool_use_id].done = true
+        else . end
+      )) as $tools |
+
+      # Last 5 tools, most recent first
+      ([$tools | to_entries | .[-5:] | reverse[] |
+        if .value.done then
+          "✓ " + .value.name
+        else
+          "◐ " + .value.name + (if .value.target != "" then " " + .value.target else "" end)
+        end
+      ] | join("  ")) as $tool_str |
+
+      # --- Todos: find most recent TodoWrite/TaskCreate/TaskUpdate ---
+      [.[] | select(.type == "tool_use" and (.name == "TodoWrite" or .name == "TaskCreate" or .name == "TaskUpdate"))] as $todo_events |
+      (if ($todo_events | length) > 0 then
+        ($todo_events | last) as $last_todo |
+        if $last_todo.name == "TodoWrite" then
+          ($last_todo.input.todos // []) as $todos |
+          ([$todos[] | select(.status == "completed")] | length) as $done |
+          ([$todos[] | select(.status == "in_progress")] | first // null) as $current |
+          if $current then
+            "▸ " + ($current.content // "task")[0:30] + " (" + ($done|tostring) + "/" + ($todos|length|tostring) + ")"
+          elif ($todos | length) > 0 then
+            "✓ todos " + ($done|tostring) + "/" + ($todos|length|tostring)
+          else ""
+          end
+        else ""
+        end
+      else "" end) as $todo_str |
+
+      # --- Agents: find running Agent tool_use without tool_result ---
+      ([$tools | to_entries[] | select(.value.name == "Agent" and .value.done == false)] |
+        if length > 0 then
+          (first | "⚡ " + .value.target)
+        else "" end
+      ) as $agent_str |
+
+      # Combine non-empty parts
+      [[$tool_str, $todo_str, $agent_str] | .[] | select(length > 0)] | join("  │  ")
+    ' 2>/dev/null)
+
+    printf '%s' "$ACTIVITY_LINE" > "$ACTIVITY_CACHE"
+  fi
+fi
+
+# Only print activity row if there's content
+if [ -n "$ACTIVITY_LINE" ]; then
+  printf '%b\n' "${DIM}›${RST} ${ACTIVITY_LINE}"
+fi
+
+# =============================================================
+# ROW 4: Stats — Cost │ Duration │ Lines │ Cache │ Speed  [FULL+]
 # =============================================================
 
 COST_FMT=$(fmt_cost "$COST_RAW")
@@ -441,7 +463,6 @@ if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
 fi
 
 CACHE_HIT=""
-TOTAL_INPUT=$((INPUT_TOK + CACHE_CREATE + CACHE_READ))
 if [ "$TOTAL_INPUT" -gt 0 ]; then
   CP=$((CACHE_READ * 100 / TOTAL_INPUT))
   if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
@@ -454,18 +475,17 @@ if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   THROUGHPUT="${DIM}$(fmt_tok "$TPM")/min${RST}"
 fi
 
-R3="${BOLD}${COST_FMT}${RST}"
-R3="${R3}${SEP}⏱ ${DUR}${EFF}"
-[ -n "$LINES" ] && R3="${R3}${SEP}${LINES}"
-[ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
-[ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
-printf '%b\n' "$R3"
+R4="${BOLD}${COST_FMT}${RST}"
+R4="${R4}${SEP}⏱ ${DUR}${EFF}"
+[ -n "$LINES" ] && R4="${R4}${SEP}${LINES}"
+[ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
+[ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
+printf '%b\n' "$R4"
 
 [ "$PRESET" = "full" ] && exit 0
 
 # =============================================================
-# ROW 4: System Vitals — CPU | Mem | GPU | Disk | Batt   [VITALS]
-#   btop-inspired mini bars, cross-platform
+# ROW 5: System Vitals — btop-style mini bars          [VITALS]
 # =============================================================
 
 SYS_CACHE="/tmp/.claude_sl_sys"
@@ -491,52 +511,35 @@ else
     GPU_PCT=$(ioreg -r -d 1 -c IOAccelerator 2>/dev/null | grep '"Device Utilization %"' | head -1 | awk -F'= *' '{print $2}' | tr -d '}' | tr -d ' ')
     GPU_PCT="${GPU_PCT:-0}"
     BV=$(pmset -g batt 2>/dev/null | grep -o '[0-9]\+%' | head -1 | tr -d '%')
-
   elif is_linux; then
     read -r _ cu cn cs ci _ < /proc/stat 2>/dev/null
     PREV_STAT="/tmp/.claude_sl_cpu_prev"
     if [ -f "$PREV_STAT" ]; then
       read -r pu pn ps pi < "$PREV_STAT"
-      TOTAL_D=$(( (cu+cn+cs+ci) - (pu+pn+ps+pi) ))
-      IDLE_D=$(( ci - pi ))
+      TOTAL_D=$(( (cu+cn+cs+ci) - (pu+pn+ps+pi) )); IDLE_D=$(( ci - pi ))
       [ "$TOTAL_D" -gt 0 ] && CPU_USED=$(( (TOTAL_D - IDLE_D) * 100 / TOTAL_D )) || CPU_USED=0
-    else
-      CPU_USED=0
-    fi
+    else CPU_USED=0; fi
     printf '%s' "$cu $cn $cs $ci" > "$PREV_STAT"
     MEM_TOTAL_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
     MEM_AVAIL_KB=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)
     MEM_USED_KB=$((${MEM_TOTAL_KB:-0} - ${MEM_AVAIL_KB:-0}))
     MEM_TOTAL_GB=$(( ${MEM_TOTAL_KB:-0} / 1048576 ))
-    MEM_USED_GB=$(awk "BEGIN{printf \"%.1f\", ${MEM_USED_KB:-0} / 1048576}")
-    MEM_USED="${MEM_USED_GB}G"
+    MEM_USED="$(awk "BEGIN{printf \"%.1f\", ${MEM_USED_KB:-0} / 1048576}")G"
     [ "${MEM_TOTAL_KB:-0}" -gt 0 ] && MEM_PCT=$(( MEM_USED_KB * 100 / MEM_TOTAL_KB )) || MEM_PCT=0
     if command -v nvidia-smi >/dev/null 2>&1; then
       GPU_PCT=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
-    else
-      GPU_PCT=$(cat /sys/class/drm/card0/device/gpu_busy_percent 2>/dev/null || echo 0)
-    fi
+    else GPU_PCT=$(cat /sys/class/drm/card0/device/gpu_busy_percent 2>/dev/null || echo 0); fi
     GPU_PCT="${GPU_PCT:-0}"
-    if [ -f /sys/class/power_supply/BAT0/capacity ]; then
-      BV=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
-    elif [ -f /sys/class/power_supply/BAT1/capacity ]; then
-      BV=$(cat /sys/class/power_supply/BAT1/capacity 2>/dev/null)
-    else
-      BV=""
-    fi
+    if [ -f /sys/class/power_supply/BAT0/capacity ]; then BV=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
+    elif [ -f /sys/class/power_supply/BAT1/capacity ]; then BV=$(cat /sys/class/power_supply/BAT1/capacity 2>/dev/null)
+    else BV=""; fi
   fi
-
   DISK_LINE=$(df -h / 2>/dev/null | tail -1)
   DISK_USED=$(printf '%s' "$DISK_LINE" | awk '{print $3}')
   DISK_TOTAL=$(printf '%s' "$DISK_LINE" | awk '{print $2}')
   DISK_PCT=$(printf '%s' "$DISK_LINE" | awk '{gsub(/%/,""); print $5}')
-
-  if is_mac; then
-    LOAD_AVG=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
-  else
-    LOAD_AVG=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
-  fi
-
+  if is_mac; then LOAD_AVG=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
+  else LOAD_AVG=$(awk '{print $1}' /proc/loadavg 2>/dev/null); fi
   cat > "$SYS_CACHE" <<CACHE
 CPU_USED='${CPU_USED:-0}'
 MEM_USED='${MEM_USED:-0M}'
@@ -551,26 +554,18 @@ LOAD_AVG='${LOAD_AVG:-0}'
 CACHE
 fi
 
-CPU_CLR=$(bar_color "${CPU_USED:-0}")
-MEM_CLR=$(bar_color "${MEM_PCT:-0}")
-GPU_CLR=$(bar_color "${GPU_PCT:-0}")
-DISK_CLR=$(bar_color "${DISK_PCT:-0}")
-
-R4="${DIM}cpu${RST} ${CPU_CLR}$(mini_bar "${CPU_USED:-0}")${RST} ${BOLD}${CPU_USED:-0}%${RST}"
-R4="${R4}${SEP}${DIM}mem${RST} ${MEM_CLR}$(mini_bar "${MEM_PCT:-0}")${RST} ${BOLD}${MEM_USED:-0M}${RST}${DIM}/${MEM_TOTAL_GB:-0}G${RST}"
-R4="${R4}${SEP}${DIM}gpu${RST} ${GPU_CLR}$(mini_bar "${GPU_PCT:-0}")${RST} ${BOLD}${GPU_PCT:-0}%${RST}"
-
-# Drop disk/bat/load on compact to avoid overflow
+R5="${DIM}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${BOLD}${CPU_USED:-0}%${RST}"
+R5="${R5}${SEP}${DIM}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${BOLD}${MEM_USED:-0M}${RST}${DIM}/${MEM_TOTAL_GB:-0}G${RST}"
+R5="${R5}${SEP}${DIM}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${BOLD}${GPU_PCT:-0}%${RST}"
 if [ "$TIER" != "compact" ]; then
-  R4="${R4}${SEP}${DIM}disk${RST} ${DISK_CLR}$(mini_bar "${DISK_PCT:-0}")${RST} ${BOLD}${DISK_USED:-0G}${RST}${DIM}/${DISK_TOTAL:-0G}${RST}"
+  R5="${R5}${SEP}${DIM}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${BOLD}${DISK_USED:-0G}${RST}${DIM}/${DISK_TOTAL:-0G}${RST}"
   if [ -n "$BV" ]; then
     if [ "$BV" -le 20 ] 2>/dev/null; then
-      R4="${R4}${SEP}${DIM}bat${RST} ${RED}${BOLD}$(mini_bar "$BV")${RST} ${RED}${BOLD}${BV}%${RST}"
+      R5="${R5}${SEP}${DIM}bat${RST} ${RED}${BOLD}$(mini_bar "$BV")${RST} ${RED}${BOLD}${BV}%${RST}"
     else
-      R4="${R4}${SEP}${DIM}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${DIM}${BV}%${RST}"
+      R5="${R5}${SEP}${DIM}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${DIM}${BV}%${RST}"
     fi
   fi
-  [ -n "$LOAD_AVG" ] && R4="${R4}${SEP}${DIM}load${RST} ${BOLD}${LOAD_AVG}${RST}"
+  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${DIM}load${RST} ${BOLD}${LOAD_AVG}${RST}"
 fi
-
-printf '%b\n' "$R4"
+printf '%b\n' "$R5"
