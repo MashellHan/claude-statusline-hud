@@ -119,6 +119,23 @@ The plugin auto-configures on the next session start via a `SessionStart` hook. 
 bash ~/.claude/plugins/cache/claude-statusline-hud/claude-statusline-hud/*/scripts/setup.sh
 ```
 
+### Update
+
+The plugin checks for updates on each session start. If a newer version is available, you'll see a yellow **↑ v1.3.0** badge on Row 1. To update:
+
+```bash
+# Step 1: Fetch latest catalog
+/plugin marketplace update claude-statusline-hud
+
+# Step 2: Reinstall
+/plugin uninstall claude-statusline-hud
+/plugin install claude-statusline-hud
+```
+
+Then restart your Claude Code session.
+
+> **Note:** Plugins don't auto-update in Claude Code. You need to manually reinstall to get new versions.
+
 ### Uninstall
 
 ```bash
