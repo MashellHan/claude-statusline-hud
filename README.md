@@ -41,10 +41,22 @@ $1.31 | ⏱ 12m 3s | +142 -38 ▲
 /plugin install claude-statusline-hud
 ```
 
+The statusline auto-configures on your next session start — no manual setup needed.
+
+### Uninstall
+
+```bash
+# Remove the plugin
+/plugin uninstall claude-statusline-hud
+
+# Clean up statusLine config from settings
+bash ~/.claude/plugins/cache/claude-statusline-hud/*/scripts/teardown.sh
+```
+
 ### Alternative: Test Locally
 
 ```bash
-claude --plugin-dir /path/to/claude-statusline-plugin
+claude --plugin-dir /path/to/claude-statusline-hud
 ```
 
 ## Presets
