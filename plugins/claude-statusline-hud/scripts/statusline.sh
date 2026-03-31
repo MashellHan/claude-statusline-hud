@@ -6,8 +6,8 @@
 #
 #    minimal   — 1 row:  [Model | Max]  Dir  Git
 #    essential — 2 rows: + Activity (when active), Context/Usage bars
-#    full      — 3–4 rows: + Stats (cost, duration, lines, etc.)  (default)
-#    vitals    — 4–5 rows: + System vitals (CPU, Mem, GPU, Disk, Battery)
+#    full      — 3–4 rows: + Stats (cost, time, code, etc.)
+#    vitals    — 4–5 rows: + System vitals (CPU, Mem, GPU, Disk, Battery)  (default)
 # ================================================================
 
 set -f  # disable globbing for safety
@@ -30,7 +30,7 @@ PRESET="${CLAUDE_STATUSLINE_PRESET:-}"
 if [ -z "$PRESET" ] && [ -f "$HOME/.claude/statusline-preset" ]; then
   PRESET=$(tr -d '[:space:]' < "$HOME/.claude/statusline-preset")
 fi
-PRESET="${PRESET:-full}"
+PRESET="${PRESET:-vitals}"
 
 # --- Parse JSON ---
 j() { printf '%s' "$input" | jq -r "$1"; }

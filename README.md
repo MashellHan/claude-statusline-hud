@@ -2,18 +2,44 @@
 
 A comprehensive, btop-inspired statusline HUD plugin for Claude Code. Cross-platform (macOS + Linux) with adaptive terminal width.
 
+> Forked from [Thewhey-Brian/claude-statusline-hud](https://github.com/Thewhey-Brian/claude-statusline-hud) with customizations: removed Usage rate limit row, moved token stats to Context row, added key labels for clarity.
+
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 ## Preview
 
-![Wide terminal — full preset](assets/preview-wide.png)
-*Full preset on wide terminal: identity, live activity, context/usage bars, session stats*
+```
+[claude-opus-4.6-1m | Max] │ pearl │  main [ 774] ↑2
+› ✓ Bash · ✓ Bash · ✓ Bash · ✓ Edit · ✓ Bash
+Context █████░░░░░ 49% │ token 110k (in 98k cache 0 out 12k)
+cost $71.92 │ time 14m 44s (api 40%) │ code +13 −127 ▼ │ cache 0% │ speed 832/min
+cpu 30% │ mem 23G/24G │ gpu 12% │ disk 12Gi/460Gi │ load 5.11
+```
 
-![Normal terminal — full preset](assets/preview-normal.png)
-*Full preset on normal terminal: adaptive layout with all key metrics*
+## Presets
 
-### Presets × Terminal Width
+| Preset | Rows | What you see |
+|---|---|---|
+| `minimal` | 1 | Model, directory, git branch & status |
+| `essential` | 2–3 | + Activity (when active), context bar with token stats |
+| `full` | 3–5 | + Session stats (cost, time, code, cache, speed), token breakdown at 85%+ |
+| **`vitals`** | **4–6** | **+ System vitals (CPU, memory, GPU, disk, battery, load) (default)** |
+
+### Switch preset
+
+```bash
+# Option 1: Write to file
+echo "vitals" > ~/.claude/statusline-preset
+
+# Option 2: Environment variable
+export CLAUDE_STATUSLINE_PRESET=essential
+
+# Option 3: Use the built-in skill
+/statusline
+```
+
+## Presets × Terminal Width
 
 <details>
 <summary><b>minimal</b> — 1 row</summary>
@@ -40,8 +66,8 @@ A comprehensive, btop-inspired statusline HUD plugin for Claude Code. Cross-plat
 **Wide (≥100 cols):**
 ```
 [Opus 4.6 (1M context) | Max] │ my-project │  main [+2 ~1] ↑2
-› ◐ Edit auth.ts  ✓ Read ×3  │  ▸ Fix auth bug (2/5)
-Context ██████████ 42% │ Usage  ██░░░░░░░░ 6% (0h 18m / 5h) │ ██████████ 23% (1d 14h / 7d)
+› ◐ Edit auth.ts · ✓ Read ×3 │ ▸ Fix auth bug (2/5)
+Context ██████████ 42% │ token 44k (in 41k cache 0 out 2k)
 ```
 
 Activity row only shows when tools/todos/agents are active — otherwise 2 rows.
@@ -49,7 +75,7 @@ Activity row only shows when tools/todos/agents are active — otherwise 2 rows.
 **Compact (<70 cols):**
 ```
 [Opus | Max] │ my-project │  main ✓
-Context ██████ 42% │ 5h ██████ 6% │ 7d ██████ 23%
+Context ██████ 42% │ token 44k (in 41k cache 0 out 2k)
 ```
 </details>
 
@@ -59,14 +85,14 @@ Context ██████ 42% │ 5h ██████ 6% │ 7d ████�
 **Wide (≥100 cols):**
 ```
 [Opus 4.6 (1M context) | Max] │ my-project │  main ✓ ↑2 │ ⚡ agent
-› ◐ Edit auth.ts  ✓ Read ×3  │  ▸ Fix auth bug (2/5)  │  ⚡ explore
-Context ██████████ 42% │ Usage  ██░░░░░░░░ 6% (0h 18m / 5h) │ ██████████ 23% (1d 14h / 7d)
-$1.31 │ ⏱ 12m 3s (api 68%) │ +142 -38 ▲ │ cache 87% │ 1k/min
+› ◐ Edit auth.ts · ✓ Read ×3 │ ▸ Fix auth bug (2/5) │ ⚡ explore
+Context ██████████ 42% │ token 44k (in 41k cache 0 out 2k)
+cost $1.31 │ time 12m 3s (api 68%) │ code +142 -38 ▲ │ cache 87% │ speed 1k/min
 ```
 
 **At high context (85%+), a token breakdown row appears:**
 ```
-Context █████████░ 87% ⚠ │ Usage  ...
+Context █████████░ 87% ⚠ │ token 179k (in 30k cache 140k out 4k)
   tokens 179k/200k — in 30k cached 140k created 5k out 4k
 ```
 
@@ -75,8 +101,8 @@ Context █████████░ 87% ⚠ │ Usage  ...
 **Compact (<70 cols):**
 ```
 [Opus | Max] │ my-project │  main ✓
-Context ██████ 42% │ 5h ██████ 6% │ 7d ██████ 23%
-$1.31 │ ⏱ 12m 3s │ +142 -38 ▲
+Context ██████ 42% │ token 44k (in 41k cache 0 out 2k)
+cost $1.31 │ time 12m 3s │ code +142 -38 ▲
 ```
 </details>
 
@@ -86,17 +112,17 @@ $1.31 │ ⏱ 12m 3s │ +142 -38 ▲
 **Wide (≥100 cols):**
 ```
 [Opus 4.6 (1M context) | Max] │ my-project │  main ✓ ↑2 │ ⚡ agent
-› ◐ Edit auth.ts  ✓ Read ×3  │  ▸ Fix auth bug (2/5)
-Context ██████████ 42% │ Usage  ██░░░░░░░░ 6% (0h 18m / 5h) │ ██████████ 23% (1d 14h / 7d)
-$1.31 │ ⏱ 12m 3s (api 68%) │ +142 -38 ▲ │ cache 87% │ 1k/min
+› ◐ Edit auth.ts · ✓ Read ×3 │ ▸ Fix auth bug (2/5)
+Context ██████████ 42% │ token 44k (in 41k cache 0 out 2k)
+cost $1.31 │ time 12m 3s (api 68%) │ code +142 -38 ▲ │ cache 87% │ speed 1k/min
 cpu ██▌  35% │ mem ███▊ 15G/16G │ gpu █    11% │ disk ▋   15G/926G │ bat ████ 80% │ load 2.41
 ```
 
 **Compact (<70 cols):**
 ```
 [Opus | Max] │ my-project │  main ✓
-Context ██████ 42% │ 5h ██████ 6% │ 7d ██████ 23%
-$1.31 │ ⏱ 12m 3s │ +142 -38 ▲
+Context ██████ 42% │ token 44k (in 41k cache 0 out 2k)
+cost $1.31 │ time 12m 3s │ code +142 -38 ▲
 cpu ██▌  35% │ mem ███▊ 15G/16G │ gpu █    11%
 ```
 </details>
@@ -107,7 +133,7 @@ cpu ██▌  35% │ mem ███▊ 15G/16G │ gpu █    11%
 
 ```bash
 # Step 1: Add the marketplace
-/plugin marketplace add Thewhey-Brian/claude-statusline-hud
+/plugin marketplace add MashellHan/claude-statusline-hud
 
 # Step 2: Install the plugin
 /plugin install claude-statusline-hud
@@ -118,23 +144,6 @@ The plugin auto-configures on the next session start via a `SessionStart` hook. 
 ```bash
 bash ~/.claude/plugins/cache/claude-statusline-hud/claude-statusline-hud/*/scripts/setup.sh
 ```
-
-### Update
-
-The plugin checks for updates on each session start. If a newer version is available, you'll see a yellow **↑ v1.3.0** badge on Row 1. To update:
-
-```bash
-# Step 1: Fetch latest catalog
-/plugin marketplace update claude-statusline-hud
-
-# Step 2: Reinstall
-/plugin uninstall claude-statusline-hud
-/plugin install claude-statusline-hud
-```
-
-Then restart your Claude Code session.
-
-> **Note:** Plugins don't auto-update in Claude Code. You need to manually reinstall to get new versions.
 
 ### Uninstall
 
@@ -151,38 +160,6 @@ bash ~/.claude/plugins/cache/claude-statusline-hud/claude-statusline-hud/*/scrip
 ```bash
 claude --plugin-dir /path/to/claude-statusline-hud/plugins/claude-statusline-hud
 ```
-
-## Presets
-
-| Preset | Rows | What you see |
-|---|---|---|
-| `minimal` | 1 | Model, directory, git branch & status |
-| `essential` | 2–3 | + Activity (when active), context/usage bars |
-| **`full`** | **3–5** | **+ Session stats, token breakdown at 85%+ (default)** |
-| `vitals` | 4–6 | + System vitals (CPU, memory, GPU, disk, battery, load) |
-
-### Switch preset
-
-```bash
-# Option 1: Write to file
-echo "vitals" > ~/.claude/statusline-preset
-
-# Option 2: Environment variable
-export CLAUDE_STATUSLINE_PRESET=essential
-
-# Option 3: Use the built-in skill
-/statusline
-```
-
-## Adaptive Width
-
-The statusline automatically adapts to your terminal width:
-
-| Width | Model label | Bar width | Usage format | Vitals |
-|---|---|---|---|---|
-| **Wide** (≥100) | `Opus 4.6 (1M context)` | 10 chars | Full with time breakdowns | All (cpu/mem/gpu/disk/bat/load) |
-| **Normal** (70–99) | `Opus 4.6` | 8 chars | Full with time breakdowns | All |
-| **Compact** (<70) | `Opus` | 6 chars | Short (no time breakdowns) | cpu/mem/gpu only |
 
 ## What Each Metric Means
 
@@ -205,48 +182,35 @@ Shows the last 5 tools (most recent first), parsed from the session transcript. 
 ```
 › ◐ Edit auth.ts · ✓ Read · ✓ Bash · ✓ Grep │ ▸ Fix auth (2/5) │ ⚡ explore
 ```
-- Tools separated by `·` (middle dot)
-- Sections (tools, todos, agents) separated by `│`
-- Reading left-to-right: Edit is **running now** (`◐`), the other 3 already **completed** (`✓`), a todo is in progress, and a subagent is running.
 
-**Symbols:**
 | Symbol | Meaning |
 |---|---|
 | `›` | Activity row prefix |
-| `◐` | Tool currently running (no result yet) — shows first 25 chars of target |
-| `✓` | Tool completed (has a matching result) |
+| `◐` | Tool currently running — shows first 25 chars of target |
+| `✓` | Tool completed |
 | `▸` | Active todo/task in progress |
 | `⚡` | Running subagent |
 
-**Elements:**
-| Element | Description |
-|---|---|
-| `◐ Edit auth.ts` | File edit in progress — shows filename |
-| `◐ Bash git status` | Bash command running — shows first 25 chars |
-| `◐ Grep pattern` | Search running — shows pattern |
-| `✓ Read` | File read completed |
-| `▸ Fix auth bug (2/5)` | Active todo, 2 of 5 tasks done |
-| `⚡ explore` | Subagent running with its description |
-
-### Row 3 — Capacity Bars
+### Row 3 — Context & Tokens
 | Element | Description |
 |---|---|
 | `Context 42%` | Context window fill % with autocompact buffer estimation |
 | `⚠` | Warning when adjusted context ≥ 90% or tokens exceed 200k |
-| `Usage 5h` | Rolling 5-hour rate limit with time consumed / total |
-| `Usage 7d` | Rolling 7-day rate limit with time consumed / total |
-| `syncing` | Shown when using stale data during API backoff |
-| `tokens 179k/200k — in 30k cached 140k ...` | Separate row at 85%+ context showing token breakdown |
+| `token 110k` | Total tokens consumed this session (input + output) |
+| `in 98k` | Input tokens |
+| `cache 0` | Cached (read) tokens — higher means cheaper |
+| `out 12k` | Output tokens generated |
+| `tokens 179k/200k — ...` | Detailed breakdown row at 85%+ context |
 
 ### Row 4 — Session Stats
 | Element | Description |
 |---|---|
-| `$cost` | Total API cost this session (USD, rounded to 2 decimals) |
-| `⏱ duration` | Wall-clock session time |
-| `(api N%)` | % of wall-clock time spent waiting for API responses |
-| `+N -N ▲▼═` | Lines added/removed with net direction (▲ growing, ▼ shrinking, ═ neutral) |
-| `cache N%` | Prompt cache hit rate — higher means cheaper and faster |
-| `Nk/min` | Output token throughput |
+| `cost $71.92` | Total API cost this session (USD) |
+| `time 14m 44s` | Wall-clock session time |
+| `(api 40%)` | % of time spent waiting for API responses |
+| `code +13 −127 ▼` | Lines added/removed with net direction (▲ growing, ▼ shrinking, ═ neutral) |
+| `cache 0%` | Prompt cache hit rate — higher means cheaper and faster |
+| `speed 832/min` | Output token throughput (tokens per minute) |
 
 ### Row 5 — System Vitals (btop-style)
 | Element | Description |
@@ -258,6 +222,16 @@ Shows the last 5 tools (most recent first), parsed from the session transcript. 
 | `bat` | Battery level (red alert ≤20%) |
 | `load` | 1-minute load average |
 
+## Adaptive Width
+
+The statusline automatically adapts to your terminal width:
+
+| Width | Model label | Bar width | Vitals |
+|---|---|---|---|
+| **Wide** (≥100) | `Opus 4.6 (1M context)` | 10 chars | All (cpu/mem/gpu/disk/bat/load) |
+| **Normal** (70–99) | `Opus 4.6` | 8 chars | All |
+| **Compact** (<70) | `Opus` | 6 chars | cpu/mem/gpu only |
+
 ## Platform Support
 
 | Feature | macOS | Linux |
@@ -268,7 +242,6 @@ Shows the last 5 tools (most recent first), parsed from the session transcript. 
 | Disk | `df` | `df` |
 | Battery | `pmset` | `/sys/class/power_supply/BAT0` |
 | Load average | `sysctl vm.loadavg` | `/proc/loadavg` |
-| Rate limit token | macOS Keychain | `~/.claude/credentials.json` |
 
 ## Performance
 
@@ -276,15 +249,22 @@ All expensive operations are cached to keep the statusline snappy:
 
 | Data source | Cache TTL | Notes |
 |---|---|---|
-| Live activity (tools/todos/agents) | 2 seconds | Parses last 100 lines of transcript JSONL |
+| Live activity (tools/todos/agents) | 2 seconds | Parses last 80 lines of transcript JSONL |
 | System vitals (CPU/mem/GPU/disk) | 5 seconds | Single cache file, sourced as shell vars |
 | Git info (branch, dirty, ahead/behind) | 10 seconds | |
-| Rate limit API call | 5 min (exponential backoff on 429) | File lock prevents concurrent calls. Falls back to stale data with `syncing` indicator. |
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `CLAUDE_STATUSLINE_PRESET` | Override preset file (`minimal`/`essential`/`full`/`vitals`) |
+| `CLAUDE_SL_ASCII=1` | Force ASCII bars (`#` `-` instead of `█` `░`) |
+| `CLAUDE_SL_UNICODE=1` | Force Unicode bars |
 
 ## Requirements
 
 - **Required:** `bash`, `jq`
-- **Optional:** `git` (git status), `curl` (rate limits)
+- **Optional:** `git` (git status)
 
 ## File Structure
 
@@ -308,13 +288,6 @@ claude-statusline-hud/
 ├── LICENSE
 └── README.md
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Test locally: `claude --plugin-dir ./plugins/claude-statusline-hud`
-3. Change preset to verify: `echo "vitals" > ~/.claude/statusline-preset`
-4. Submit a PR
 
 ## License
 
