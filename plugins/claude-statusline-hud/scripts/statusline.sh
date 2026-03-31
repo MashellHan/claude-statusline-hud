@@ -373,13 +373,13 @@ if [ "$EXCEEDS_200K" = "true" ] || [ "$ADJ_PCT" -ge 90 ] 2>/dev/null; then
   CTX_WARN=" ${BOLD}${BG_YELLOW} ⚠ ${RST}"
 fi
 
-CTX_LABEL="${BOLD}${PCT}%${RST}"
+CTX_LABEL="${VAL}${PCT}%${RST}"
 
 # ---- Build token display for context row ----
 TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
 TOK_DISPLAY=""
 if [ "$TOTAL_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
+  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
 fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
@@ -418,17 +418,17 @@ CACHE_HIT=""
 if [ "$TOTAL_INPUT" -gt 0 ]; then
   CP=$((CACHE_READ * 100 / TOTAL_INPUT))
   if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
-  CACHE_HIT="${CYAN}cache${RST} ${CC}${BOLD}${CP}%${RST}"
+  CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
 fi
 
 THROUGHPUT=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${CYAN}speed${RST} $(fmt_tok "$TPM")/min"
+  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
-R4="${CYAN}cost${RST} ${BOLD}${COST_FMT}${RST}"
-R4="${R4}${SEP}${CYAN}time${RST} ${DUR}${EFF}"
+R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
 [ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
@@ -506,18 +506,18 @@ LOAD_AVG='${LOAD_AVG:-0}'
 CACHE
 fi
 
-R5="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${BOLD}${CPU_USED:-0}%${RST}"
-R5="${R5}${SEP}${CYAN}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${BOLD}${MEM_USED:-0M}${RST}/${MEM_TOTAL_GB:-0}G"
-R5="${R5}${SEP}${CYAN}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${BOLD}${GPU_PCT:-0}%${RST}"
+R5="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${VAL}${CPU_USED:-0}%${RST}"
+R5="${R5}${SEP}${CYAN}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${VAL}${MEM_USED:-0M}${RST}/${MEM_TOTAL_GB:-0}G"
+R5="${R5}${SEP}${CYAN}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${VAL}${GPU_PCT:-0}%${RST}"
 if [ "$TIER" != "compact" ]; then
-  R5="${R5}${SEP}${CYAN}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${BOLD}${DISK_USED:-0G}${RST}/${DISK_TOTAL:-0G}"
+  R5="${R5}${SEP}${CYAN}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${VAL}${DISK_USED:-0G}${RST}/${DISK_TOTAL:-0G}"
   if [ -n "$BV" ]; then
     if [ "$BV" -le 20 ] 2>/dev/null; then
-      R5="${R5}${SEP}${CYAN}bat${RST} ${RED}${BOLD}$(mini_bar "$BV")${RST} ${RED}${BOLD}${BV}%${RST}"
+      R5="${R5}${SEP}${CYAN}bat${RST} ${RED}${VAL}$(mini_bar "$BV")${RST} ${RED}${VAL}${BV}%${RST}"
     else
-      R5="${R5}${SEP}${CYAN}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${BV}%"
+      R5="${R5}${SEP}${CYAN}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${VAL}${BV}%${RST}"
     fi
   fi
-  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${CYAN}load${RST} ${BOLD}${LOAD_AVG}${RST}"
+  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${CYAN}load${RST} ${VAL}${LOAD_AVG}${RST}"
 fi
 printf '%b\n' "$R5"
