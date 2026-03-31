@@ -9,13 +9,11 @@ A comprehensive, btop-inspired statusline HUD plugin for Claude Code. Cross-plat
 
 ## Preview
 
-```
-[claude-opus-4.6-1m | Max] │ pearl │  main [ 774] ↑2
-› ✓ Bash · ✓ Bash · ✓ Bash · ✓ Edit · ✓ Bash
-Context █████░░░░░ 49% │ token 110k (in 98k cache 0 out 12k)
-cost $71.92 │ time 14m 44s (api 40%) │ code +13 −127 ▼ │ cache 0% │ speed 832/min
-cpu 30% │ mem 23G/24G │ gpu 12% │ disk 12Gi/460Gi │ load 5.11
-```
+### Dark Terminal
+![Dark Terminal](assets/screenshot-dark.png)
+
+### Light Terminal
+![Light Terminal](assets/screenshot-light.png)
 
 ## Presets
 
