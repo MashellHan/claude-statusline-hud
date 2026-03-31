@@ -80,6 +80,25 @@ BLUE=$'\033[34m'    MAGENTA=$'\033[35m' WHITE=$'\033[97m'
 RST=$'\033[0m'      BOLD=$'\033[1m'     DIM=$'\033[2m'     ITAL=$'\033[3m'
 BG_YELLOW=$'\033[43m'
 
+# --- Theme detection: dark vs light terminal ---
+# VAL = color for metric values. Bright white on dark bg, bold on light bg.
+# Override: CLAUDE_SL_THEME=dark|light
+_THEME="${CLAUDE_SL_THEME:-}"
+if [ -z "$_THEME" ]; then
+  # COLORFGBG="fg;bg" — bg ≥ 8 usually means light background
+  if [ -n "${COLORFGBG:-}" ]; then
+    _BG="${COLORFGBG##*;}"
+    if [ "${_BG:-0}" -ge 8 ] 2>/dev/null; then _THEME="light"; else _THEME="dark"; fi
+  else
+    _THEME="dark"  # most terminals default dark
+  fi
+fi
+if [ "$_THEME" = "light" ]; then
+  VAL="${BOLD}"
+else
+  VAL="${WHITE}"
+fi
+
 # --- UTF-8 detection ---
 # Override: set CLAUDE_SL_ASCII=1 to force ASCII bars, or CLAUDE_SL_UNICODE=1 to force Unicode.
 # Default: check locale vars. Hook subprocesses often lack locale, so also check parent shell.
@@ -360,7 +379,7 @@ CTX_LABEL="${BOLD}${PCT}%${RST}"
 TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
 TOK_DISPLAY=""
 if [ "$TOTAL_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST})"
+  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
 fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
@@ -383,7 +402,7 @@ COST_FMT=$(fmt_cost "$COST_RAW")
 DUR=$(fmt_dur "$DURATION_MS")
 EFF=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$API_MS" -gt 0 ]; then
-  EFF=" (${CYAN}api${RST} ${BOLD}$((API_MS * 100 / DURATION_MS))%${RST})"
+  EFF=" (${CYAN}api${RST} ${VAL}$((API_MS * 100 / DURATION_MS))%${RST})"
 fi
 
 LINES=""
