@@ -360,7 +360,7 @@ CTX_LABEL="${BOLD}${PCT}%${RST}"
 TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
 TOK_DISPLAY=""
 if [ "$TOTAL_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${WHITE}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${WHITE}$(fmt_tok $TOTAL_OUT)${RST})"
+  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST})"
 fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
@@ -383,7 +383,7 @@ COST_FMT=$(fmt_cost "$COST_RAW")
 DUR=$(fmt_dur "$DURATION_MS")
 EFF=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$API_MS" -gt 0 ]; then
-  EFF=" ${WHITE}(api $((API_MS * 100 / DURATION_MS))%)${RST}"
+  EFF=" (${CYAN}api${RST} ${BOLD}$((API_MS * 100 / DURATION_MS))%${RST})"
 fi
 
 LINES=""
