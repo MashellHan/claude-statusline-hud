@@ -360,7 +360,7 @@ CTX_LABEL="${BOLD}${PCT}%${RST}"
 TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
 TOK_DISPLAY=""
 if [ "$TOTAL_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}tok${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} ${DIM}(in $(fmt_tok $INPUT_TOK) ${GREEN}cache $(fmt_tok $CACHE_READ)${RST}${DIM} out $(fmt_tok $TOTAL_OUT))${RST}"
+  TOK_DISPLAY="${CYAN}token${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} ${DIM}(${CYAN}in${RST}${DIM} $(fmt_tok $INPUT_TOK) ${CYAN}cache${RST}${DIM} ${GREEN}$(fmt_tok $CACHE_READ)${RST}${DIM} ${CYAN}out${RST}${DIM} $(fmt_tok $TOTAL_OUT))${RST}"
 fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
@@ -405,12 +405,12 @@ fi
 THROUGHPUT=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${CYAN}$(fmt_tok "$TPM")/min${RST}"
+  THROUGHPUT="${CYAN}speed${RST} $(fmt_tok "$TPM")/min"
 fi
 
-R4="${BOLD}${COST_FMT}${RST}"
-R4="${R4}${SEP}⏱ ${DUR}${EFF}"
-[ -n "$LINES" ] && R4="${R4}${SEP}${LINES}"
+R4="${CYAN}cost${RST} ${BOLD}${COST_FMT}${RST}"
+R4="${R4}${SEP}${CYAN}time${RST} ${DUR}${EFF}"
+[ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}lines${RST} ${LINES}"
 [ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
 [ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
 printf '%b\n' "$R4"
