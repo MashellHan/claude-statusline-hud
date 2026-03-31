@@ -267,7 +267,11 @@ fi
 # =============================================================
 # ROW 1: [Model | Max] │ Dir │ Git │ Badges │ Update  [ALL]
 # =============================================================
-R1="${BOLD}${CYAN}[${MODEL_LABEL} | Max]${RST}"
+if [ "$_THEME" = "light" ]; then
+  R1="${CYAN}[${MODEL_LABEL} | Max]${RST}"
+else
+  R1="${BOLD}${CYAN}[${MODEL_LABEL} | Max]${RST}"
+fi
 R1="${R1}${SEP}${BOLD}${GREEN}${DIR_NAME}${RST}"
 [ -n "$GIT_DISPLAY" ] && R1="${R1}${SEP}${GIT_DISPLAY}"
 [ -n "$BADGES" ] && R1="${R1}${BADGES}"
