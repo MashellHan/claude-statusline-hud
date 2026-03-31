@@ -356,117 +356,15 @@ fi
 
 CTX_LABEL="${BOLD}${PCT}%${RST}"
 
-# ---- Rate limit: token discovery ----
-USAGE_CACHE="/tmp/.claude_sl_usage"
-USAGE_META="/tmp/.claude_sl_usage_meta"
-USAGE_LOCK="/tmp/.claude_sl_usage.lock"
-USAGE_JSON=""
-RL_SYNCING=0
-RL_ERR=""
-
-get_oauth_token() {
-  local tk="" cred_json=""
-  if is_mac; then
-    for svc in "Claude Code-credentials" "claude-code-credentials" "Claude-credentials"; do
-      cred_json=$(security find-generic-password -s "$svc" -w 2>/dev/null)
-      [ -z "$cred_json" ] && continue
-      local expires_at=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.expiresAt // 0' 2>/dev/null)
-      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then continue; fi
-      tk=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
-    done
-    cred_json=$(security find-generic-password -a "claude-code" -w 2>/dev/null)
-    if [ -n "$cred_json" ]; then
-      tk=$(printf '%s' "$cred_json" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
-    fi
-  fi
-  for cred_file in "$HOME/.claude/.credentials.json" "$HOME/.claude/credentials.json" \
-    "$HOME/.config/claude/credentials.json" "${XDG_CONFIG_HOME:-$HOME/.config}/claude-code/credentials.json"; do
-    if [ -f "$cred_file" ]; then
-      local expires_at=$(jq -r '.claudeAiOauth.expiresAt // 0' "$cred_file" 2>/dev/null)
-      if [ "$expires_at" != "0" ] && [ -n "$expires_at" ] && [ "$NOW" -gt "$expires_at" ] 2>/dev/null; then continue; fi
-      tk=$(jq -r '.claudeAiOauth.accessToken // empty' "$cred_file" 2>/dev/null)
-      [ -n "$tk" ] && { printf '%s' "$tk"; return 0; }
-    fi
-  done
-  [ -n "${CLAUDE_OAUTH_TOKEN:-}" ] && { printf '%s' "$CLAUDE_OAUTH_TOKEN"; return 0; }
-  return 1
-}
-
-# ---- Rate limit: fetch with exponential backoff ----
-RATE_LIMITED_COUNT=0
-if [ -f "$USAGE_META" ]; then eval "$(cat "$USAGE_META")"; fi
-
-CACHE_TTL=300
-if [ "$RATE_LIMITED_COUNT" -gt 0 ]; then
-  BACKOFF=$((60 * (1 << (RATE_LIMITED_COUNT - 1))))
-  [ "$BACKOFF" -gt 300 ] && BACKOFF=300
-  CACHE_TTL=$BACKOFF
+# ---- Build token display for context row ----
+TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
+TOK_DISPLAY=""
+if [ "$TOTAL_TOKENS" -gt 0 ]; then
+  TOK_DISPLAY="${CYAN}tok${RST} ${BOLD}$(fmt_tok $TOTAL_TOKENS)${RST} ${DIM}(in $(fmt_tok $INPUT_TOK) ${GREEN}cache $(fmt_tok $CACHE_READ)${RST}${DIM} out $(fmt_tok $TOTAL_OUT))${RST}"
 fi
 
-if [ "$(file_age "$USAGE_CACHE")" -lt "$CACHE_TTL" ]; then
-  USAGE_JSON=$(cat "$USAGE_CACHE")
-  [ "$RATE_LIMITED_COUNT" -gt 0 ] && RL_SYNCING=1
-else
-  if ( set -o noclobber; echo $$ > "$USAGE_LOCK" ) 2>/dev/null; then
-    trap "rm -f '$USAGE_LOCK'" EXIT
-    TK=$(get_oauth_token)
-    if [ -n "$TK" ]; then
-      RESP=$(curl -s --max-time 5 -w '\n%{http_code}' "https://api.anthropic.com/api/oauth/usage" \
-        -H "Accept: application/json" -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $TK" -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
-      HTTP_CODE=$(printf '%s' "$RESP" | tail -1)
-      BODY=$(printf '%s' "$RESP" | sed '$d')
-      if [ "$HTTP_CODE" = "200" ] && printf '%s' "$BODY" | jq -e '.five_hour' >/dev/null 2>&1; then
-        USAGE_JSON="$BODY"
-        printf '%s' "$USAGE_JSON" > "$USAGE_CACHE"
-        printf "RATE_LIMITED_COUNT=0\nLAST_ERR=''\n" > "$USAGE_META"
-      elif [ "$HTTP_CODE" = "429" ]; then
-        RATE_LIMITED_COUNT=$((RATE_LIMITED_COUNT + 1))
-        printf "RATE_LIMITED_COUNT=%d\nLAST_ERR='rate limited'\n" "$RATE_LIMITED_COUNT" > "$USAGE_META"
-        if [ -f "$USAGE_CACHE" ]; then USAGE_JSON=$(cat "$USAGE_CACHE"); RL_SYNCING=1; touch "$USAGE_CACHE"
-        else RL_ERR="rate limited"; fi
-      elif [ "$HTTP_CODE" = "401" ]; then RL_ERR="token expired"
-      elif [ "$HTTP_CODE" = "403" ]; then RL_ERR="not on Max plan"
-      else
-        if [ -f "$USAGE_CACHE" ]; then USAGE_JSON=$(cat "$USAGE_CACHE"); RL_SYNCING=1
-        else RL_ERR="http ${HTTP_CODE:-err}"; fi
-      fi
-    else RL_ERR="no token"; fi
-    rm -f "$USAGE_LOCK"; trap - EXIT
-  else
-    [ -f "$USAGE_CACHE" ] && USAGE_JSON=$(cat "$USAGE_CACHE")
-    [ "$(file_age "$USAGE_LOCK")" -gt 30 ] && rm -f "$USAGE_LOCK"
-  fi
-fi
-
-[ -z "$USAGE_JSON" ] && [ -z "$RL_ERR" ] && [ -n "${LAST_ERR:-}" ] && RL_ERR="$LAST_ERR"
-
-# ---- Build rate limit display ----
-RL_DISPLAY=""
-SYNC_TAG=""
-[ "$RL_SYNCING" = "1" ] && SYNC_TAG=" ${DIM}${ITAL}syncing${RST}"
-
-if [ -n "$USAGE_JSON" ]; then
-  U5=$(printf '%s' "$USAGE_JSON" | jq -r '.five_hour.utilization // 0' | cut -d. -f1)
-  U5_CLR=$(bar_color "$U5"); U5_BAR=$(make_bar "$U5" "$RL_BAR_W")
-  U5_TOTAL_MIN=$((U5 * 300 / 100)); U5_H=$((U5_TOTAL_MIN / 60)); U5_M=$((U5_TOTAL_MIN % 60))
-  U7=$(printf '%s' "$USAGE_JSON" | jq -r '.seven_day.utilization // 0' | cut -d. -f1)
-  U7_CLR=$(bar_color "$U7"); U7_BAR=$(make_bar "$U7" "$RL_BAR_W")
-  U7_TOTAL_H=$((U7 * 168 / 100)); U7_D=$((U7_TOTAL_H / 24)); U7_H=$((U7_TOTAL_H % 24))
-  if [ "$TIER" = "compact" ]; then
-    RL_DISPLAY="${DIM}5h${RST} ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST}${SEP}${DIM}7d${RST} ${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST}${SYNC_TAG}"
-  else
-    RL_DISPLAY="${DIM}Usage${RST}  ${U5_CLR}${U5_BAR}${RST} ${BOLD}${U5}%${RST} ${DIM}(${U5_H}h ${U5_M}m / 5h)${RST}${SEP}${U7_CLR}${U7_BAR}${RST} ${BOLD}${U7}%${RST} ${DIM}(${U7_D}d ${U7_H}h / 7d)${RST}${SYNC_TAG}"
-  fi
-else
-  if [ "$TIER" = "compact" ]; then RL_DISPLAY="${DIM}usage ${YELLOW}--${RST}"
-  else RL_DISPLAY="${DIM}Usage${RST}  ${YELLOW}${BOLD}--${RST} ${DIM}(${RL_ERR:-unavailable})${RST}"; fi
-fi
-
-R3="${DIM}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
-R3="${R3}${SEP}${RL_DISPLAY}"
+R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
+[ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
 printf '%b\n' "$R3"
 
 # --- Token breakdown row (conditional): shown at 85%+ context ---
@@ -501,13 +399,13 @@ CACHE_HIT=""
 if [ "$TOTAL_INPUT" -gt 0 ]; then
   CP=$((CACHE_READ * 100 / TOTAL_INPUT))
   if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
-  CACHE_HIT="${DIM}cache${RST} ${CC}${BOLD}${CP}%${RST}"
+  CACHE_HIT="${CYAN}cache${RST} ${CC}${BOLD}${CP}%${RST}"
 fi
 
 THROUGHPUT=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${DIM}$(fmt_tok "$TPM")/min${RST}"
+  THROUGHPUT="${CYAN}$(fmt_tok "$TPM")/min${RST}"
 fi
 
 R4="${BOLD}${COST_FMT}${RST}"
@@ -543,7 +441,7 @@ else
     fi
     [ "$MEM_TOTAL_BYTES" -gt 0 ] 2>/dev/null && \
       MEM_PCT=$(awk "BEGIN{printf \"%.0f\", ${MEM_USED_BYTES} / ${MEM_TOTAL_BYTES} * 100}") || MEM_PCT=0
-    GPU_PCT=$(ioreg -r -d 1 -c IOAccelerator 2>/dev/null | grep '"Device Utilization %"' | head -1 | awk -F'= *' '{print $2}' | tr -d '}' | tr -d ' ')
+    GPU_PCT=$(ioreg -r -d 1 -c IOAccelerator 2>/dev/null | grep -o '"Device Utilization %"=[0-9]*' | head -1 | awk -F'=' '{print $2}')
     GPU_PCT="${GPU_PCT:-0}"
     BV=$(pmset -g batt 2>/dev/null | grep -o '[0-9]\+%' | head -1 | tr -d '%')
   elif is_linux; then
@@ -589,18 +487,18 @@ LOAD_AVG='${LOAD_AVG:-0}'
 CACHE
 fi
 
-R5="${DIM}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${BOLD}${CPU_USED:-0}%${RST}"
-R5="${R5}${SEP}${DIM}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${BOLD}${MEM_USED:-0M}${RST}${DIM}/${MEM_TOTAL_GB:-0}G${RST}"
-R5="${R5}${SEP}${DIM}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${BOLD}${GPU_PCT:-0}%${RST}"
+R5="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${BOLD}${CPU_USED:-0}%${RST}"
+R5="${R5}${SEP}${CYAN}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${BOLD}${MEM_USED:-0M}${RST}/${MEM_TOTAL_GB:-0}G"
+R5="${R5}${SEP}${CYAN}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${BOLD}${GPU_PCT:-0}%${RST}"
 if [ "$TIER" != "compact" ]; then
-  R5="${R5}${SEP}${DIM}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${BOLD}${DISK_USED:-0G}${RST}${DIM}/${DISK_TOTAL:-0G}${RST}"
+  R5="${R5}${SEP}${CYAN}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${BOLD}${DISK_USED:-0G}${RST}/${DISK_TOTAL:-0G}"
   if [ -n "$BV" ]; then
     if [ "$BV" -le 20 ] 2>/dev/null; then
-      R5="${R5}${SEP}${DIM}bat${RST} ${RED}${BOLD}$(mini_bar "$BV")${RST} ${RED}${BOLD}${BV}%${RST}"
+      R5="${R5}${SEP}${CYAN}bat${RST} ${RED}${BOLD}$(mini_bar "$BV")${RST} ${RED}${BOLD}${BV}%${RST}"
     else
-      R5="${R5}${SEP}${DIM}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${DIM}${BV}%${RST}"
+      R5="${R5}${SEP}${CYAN}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${BV}%"
     fi
   fi
-  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${DIM}load${RST} ${BOLD}${LOAD_AVG}${RST}"
+  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${CYAN}load${RST} ${BOLD}${LOAD_AVG}${RST}"
 fi
 printf '%b\n' "$R5"
