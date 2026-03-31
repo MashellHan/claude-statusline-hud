@@ -410,7 +410,7 @@ fi
 
 R4="${CYAN}cost${RST} ${BOLD}${COST_FMT}${RST}"
 R4="${R4}${SEP}${CYAN}time${RST} ${DUR}${EFF}"
-[ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}lines${RST} ${LINES}"
+[ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
 [ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
 printf '%b\n' "$R4"
