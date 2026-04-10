@@ -24,8 +24,8 @@ input=$(cat)
 EVENTS_FILE="/tmp/.claude_sl_events_$$"
 trap 'rm -f "$EVENTS_FILE"' EXIT
 
-# --- Clean up stale activity cache files (>1 day old) ---
-find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_sl_activity_*' -mtime +1 -delete 2>/dev/null
+# --- Clean up stale statusline cache files (>1 day old) ---
+find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_sl_*' -mtime +1 -delete 2>/dev/null
 
 # --- Platform detection ---
 OS="$(uname -s)"
@@ -269,6 +269,8 @@ if [ -n "$DIR" ]; then
         GIT_STATE="CHERRY-PICK"
       elif [ -f "${_GIT_DIR}/BISECT_LOG" ]; then
         GIT_STATE="BISECTING"
+      elif [ -f "${_GIT_DIR}/REVERT_HEAD" ]; then
+        GIT_STATE="REVERTING"
       fi
       UPSTREAM=$(git -C "$DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)
       GAB=""
@@ -454,6 +456,55 @@ fi
 # ROW 4: Stats — Cost │ Duration │ Lines │ Cache │ Speed  [FULL+]
 # =============================================================
 
+# --- Daily token/cost tracking ---
+DAILY_DIR="$HOME/.claude/statusline-data"
+DAILY_LOG="$DAILY_DIR/daily.jsonl"
+DAILY_CACHE="/tmp/.claude_sl_daily_$(id -u)"
+DAY_COST="" DAY_TOK=""
+
+if [ -n "$TRANSCRIPT" ] && [ "$TOTAL_TOKENS" -gt 0 ]; then
+  mkdir -p "$DAILY_DIR" 2>/dev/null
+  TODAY=$(date +%Y-%m-%d)
+  # Append or update this session's stats (dedup by session ID)
+  _ENTRY="{\"date\":\"${TODAY}\",\"sid\":\"${_SID}\",\"tokens\":${TOTAL_TOKENS},\"cost\":${COST_RAW}}"
+  # Check if this session already has an entry for today — update if changed
+  if [ -f "$DAILY_LOG" ]; then
+    _LAST_SID=$(tail -1 "$DAILY_LOG" 2>/dev/null | jq -r '.sid // ""' 2>/dev/null)
+    _LAST_TOK=$(tail -1 "$DAILY_LOG" 2>/dev/null | jq -r '.tokens // 0' 2>/dev/null)
+    if [ "$_LAST_SID" = "$_SID" ]; then
+      # Same session — only update if tokens changed
+      if [ "$_LAST_TOK" != "$TOTAL_TOKENS" ]; then
+        # Remove last line and re-append
+        sed -i.bak '$ d' "$DAILY_LOG" 2>/dev/null && rm -f "${DAILY_LOG}.bak"
+        printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
+        rm -f "$DAILY_CACHE"
+      fi
+    else
+      printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
+      rm -f "$DAILY_CACHE"
+    fi
+  else
+    printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
+    rm -f "$DAILY_CACHE"
+  fi
+
+  # Aggregate daily stats (cached 30s)
+  if [ -f "$DAILY_LOG" ]; then
+    if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
+      . "$DAILY_CACHE"
+    else
+      _AGG=$(jq -rs --arg d "$TODAY" '
+        [.[] | select(.date == $d)] |
+        {cost: (map(.cost) | add // 0), tokens: (map(.tokens) | add // 0), sessions: length}
+      ' "$DAILY_LOG" 2>/dev/null)
+      _DAY_COST=$(printf '%s' "$_AGG" | jq -r '.cost // 0' 2>/dev/null)
+      _DAY_TOK=$(printf '%s' "$_AGG" | jq -r '.tokens // 0' 2>/dev/null)
+      printf "DAY_COST='%s'\nDAY_TOK='%s'\n" "$_DAY_COST" "$_DAY_TOK" > "$DAILY_CACHE"
+      DAY_COST="$_DAY_COST" DAY_TOK="$_DAY_TOK"
+    fi
+  fi
+fi
+
 COST_FMT=$(fmt_cost "$COST_RAW")
 DUR=$(fmt_dur "$DURATION_MS")
 EFF=""
@@ -484,10 +535,16 @@ if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
 fi
 
 R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
+  R4="${R4} ${DIM}(day${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}${DIM})${RST}"
+fi
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
 [ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
+if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ]; then
+  R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+fi
 printf '%b\n' "$R4"
 
 [ "$PRESET" = "full" ] && exit 0
