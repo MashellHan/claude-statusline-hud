@@ -14,6 +14,10 @@ set -f  # disable globbing for safety
 
 input=$(cat)
 
+# --- Temp file cleanup trap ---
+EVENTS_FILE="/tmp/.claude_sl_events_$$"
+trap 'rm -f "$EVENTS_FILE"' EXIT
+
 # --- Platform detection ---
 OS="$(uname -s)"
 is_mac() { [ "$OS" = "Darwin" ]; }
@@ -32,28 +36,34 @@ if [ -z "$PRESET" ] && [ -f "$HOME/.claude/statusline-preset" ]; then
 fi
 PRESET="${PRESET:-vitals}"
 
-# --- Parse JSON ---
-j() { printf '%s' "$input" | jq -r "$1"; }
-
-MODEL=$(j '.model.display_name // "Unknown"')
-DIR=$(j '.workspace.current_dir // ""')
-PCT=$(j '.context_window.used_percentage // 0 | floor')
-COST_RAW=$(j '.cost.total_cost_usd // 0')
-DURATION_MS=$(j '.cost.total_duration_ms // 0 | floor')
-API_MS=$(j '.cost.total_api_duration_ms // 0 | floor')
-LINES_ADD=$(j '.cost.total_lines_added // 0')
-LINES_DEL=$(j '.cost.total_lines_removed // 0')
-VIM_MODE=$(j '.vim.mode // ""')
-AGENT_NAME=$(j '.agent.name // ""')
-WT_NAME=$(j '.worktree.name // ""')
-WT_BRANCH=$(j '.worktree.branch // ""')
-EXCEEDS_200K=$(j '.exceeds_200k_tokens // false')
-INPUT_TOK=$(j '.context_window.current_usage.input_tokens // 0')
-CACHE_CREATE=$(j '.context_window.current_usage.cache_creation_input_tokens // 0')
-CACHE_READ=$(j '.context_window.current_usage.cache_read_input_tokens // 0')
-TOTAL_OUT=$(j '.context_window.total_output_tokens // 0')
-TRANSCRIPT=$(j '.transcript_path // ""')
-CTX_SIZE=$(j '.context_window.context_window_size // 200000')
+# --- Parse JSON (single jq call for all fields) ---
+eval "$(printf '%s' "$input" | jq -r '
+  @sh "MODEL=\(.model.display_name // "Unknown")",
+  @sh "DIR=\(.workspace.current_dir // "")",
+  @sh "PCT=\(.context_window.used_percentage // 0 | floor)",
+  @sh "COST_RAW=\(.cost.total_cost_usd // 0)",
+  @sh "DURATION_MS=\(.cost.total_duration_ms // 0 | floor)",
+  @sh "API_MS=\(.cost.total_api_duration_ms // 0 | floor)",
+  @sh "LINES_ADD=\(.cost.total_lines_added // 0)",
+  @sh "LINES_DEL=\(.cost.total_lines_removed // 0)",
+  @sh "VIM_MODE=\(.vim.mode // "")",
+  @sh "AGENT_NAME=\(.agent.name // "")",
+  @sh "WT_NAME=\(.worktree.name // "")",
+  @sh "WT_BRANCH=\(.worktree.branch // "")",
+  @sh "EXCEEDS_200K=\(.exceeds_200k_tokens // false)",
+  @sh "INPUT_TOK=\(.context_window.current_usage.input_tokens // 0)",
+  @sh "CACHE_CREATE=\(.context_window.current_usage.cache_creation_input_tokens // 0)",
+  @sh "CACHE_READ=\(.context_window.current_usage.cache_read_input_tokens // 0)",
+  @sh "TOTAL_OUT=\(.context_window.total_output_tokens // 0)",
+  @sh "TRANSCRIPT=\(.transcript_path // "")",
+  @sh "CTX_SIZE=\(.context_window.context_window_size // 200000)"
+' 2>/dev/null)" || {
+  # Fallback: if jq fails, set safe defaults
+  MODEL="Unknown" DIR="" PCT=0 COST_RAW=0 DURATION_MS=0 API_MS=0
+  LINES_ADD=0 LINES_DEL=0 VIM_MODE="" AGENT_NAME="" WT_NAME="" WT_BRANCH=""
+  EXCEEDS_200K=false INPUT_TOK=0 CACHE_CREATE=0 CACHE_READ=0 TOTAL_OUT=0
+  TRANSCRIPT="" CTX_SIZE=200000
+}
 
 # --- Smart directory name ---
 if [ "$DIR" = "$HOME" ]; then DIR_NAME="~"
@@ -143,14 +153,16 @@ mini_bar() {
   [ "$pct" -gt 100 ] 2>/dev/null && pct=100
   [ "$pct" -lt 0 ] 2>/dev/null && pct=0
   if [ "$USE_UNICODE" = "1" ]; then
-    local chars_0="▏" chars_1="▎" chars_2="▍" chars_3="▌"
-    local chars_4="▋" chars_5="▊" chars_6="▉" chars_7="█"
     local width=4 total=$((pct * width))
     local full=$((total / 100)) remainder=$(( (total % 100) * 8 / 100 ))
     local bar="" i=0
     while [ "$i" -lt "$full" ] && [ "$i" -lt "$width" ]; do bar="${bar}█"; i=$((i+1)); done
     if [ "$i" -lt "$width" ] && [ "$remainder" -gt 0 ]; then
-      eval "bar=\"\${bar}\${chars_${remainder}}\""; i=$((i+1))
+      case "$remainder" in
+        1) bar="${bar}▏" ;; 2) bar="${bar}▎" ;; 3) bar="${bar}▍" ;; 4) bar="${bar}▌" ;;
+        5) bar="${bar}▋" ;; 6) bar="${bar}▊" ;; 7) bar="${bar}▉" ;;
+      esac
+      i=$((i+1))
     fi
     while [ "$i" -lt "$width" ]; do bar="${bar} "; i=$((i+1)); done
     printf '%s' "$bar"
@@ -200,6 +212,13 @@ file_age() {
 }
 
 NOW=$(date +%s)
+
+# --- Session ID for cache isolation ---
+if [ -n "$TRANSCRIPT" ]; then
+  _SID=$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')
+else
+  _SID="$$"
+fi
 
 # =============================================
 # GIT INFO (cached 10s)
@@ -286,7 +305,7 @@ printf '%b\n' "$R1"
 #   Cached 2s. Appears in ESSENTIAL+ presets.
 # =============================================================
 
-ACTIVITY_CACHE="/tmp/.claude_sl_activity"
+ACTIVITY_CACHE="/tmp/.claude_sl_activity_${_SID}"
 ACTIVITY_LINE=""
 
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
@@ -295,7 +314,6 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   else
     # Transcript JSONL: tools are nested in .message.content[]
     # Step 1: Extract lightweight events line-by-line via jq -c pipe (no slurp)
-    EVENTS_FILE="/tmp/.claude_sl_events_$$"
     tail -80 "$TRANSCRIPT" 2>/dev/null | jq -c '
       [(.message.content // [])[] | select(.type == "tool_use" or .type == "tool_result") |
         if .type == "tool_use" then
@@ -444,7 +462,7 @@ printf '%b\n' "$R4"
 # ROW 5: System Vitals — btop-style mini bars          [VITALS]
 # =============================================================
 
-SYS_CACHE="/tmp/.claude_sl_sys"
+SYS_CACHE="${TMPDIR:-/tmp}/.claude_sl_sys_$(id -u)"
 if [ "$(file_age "$SYS_CACHE")" -lt 5 ]; then
   . "$SYS_CACHE"
 else
