@@ -12,11 +12,20 @@
 
 set -f  # disable globbing for safety
 
+# --- Dependency check ---
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%s\n' "[statusline-hud] ERROR: jq is required but not found. Install: brew install jq (macOS) or apt install jq (Linux)"
+  exit 1
+fi
+
 input=$(cat)
 
 # --- Temp file cleanup trap ---
 EVENTS_FILE="/tmp/.claude_sl_events_$$"
 trap 'rm -f "$EVENTS_FILE"' EXIT
+
+# --- Clean up stale activity cache files (>1 day old) ---
+find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_sl_activity_*' -mtime +1 -delete 2>/dev/null
 
 # --- Platform detection ---
 OS="$(uname -s)"
@@ -225,19 +234,42 @@ fi
 # =============================================
 GIT_DISPLAY=""
 if [ -n "$DIR" ]; then
-  GIT_CACHE="/tmp/.claude_sl_git"
+  _DIR_HASH=$(printf '%s' "$DIR" | cksum | awk '{print $1}')
+  GIT_CACHE="/tmp/.claude_sl_git_${_DIR_HASH}"
   if [ "$(file_age "$GIT_CACHE")" -lt 10 ]; then
     GIT_INFO=$(cat "$GIT_CACHE")
   else
     if git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
       GB=$(git -C "$DIR" symbolic-ref --short HEAD 2>/dev/null || git -C "$DIR" rev-parse --short HEAD 2>/dev/null)
       GD=""
-      gs=$(git -C "$DIR" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
-      gu=$(git -C "$DIR" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
-      gq=$(git -C "$DIR" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+      # Single git status --porcelain call instead of 3 separate commands
+      _GS_OUT=$(git -C "$DIR" status --porcelain 2>/dev/null)
+      if [ -n "$_GS_OUT" ]; then
+        gs=$(printf '%s\n' "$_GS_OUT" | grep -c '^[MADRC]')
+        gu=$(printf '%s\n' "$_GS_OUT" | grep -c '^.[MDRC]')
+        gq=$(printf '%s\n' "$_GS_OUT" | grep -c '^??')
+      else
+        gs=0 gu=0 gq=0
+      fi
       [ "$gs" -gt 0 ] && GD="${GD}+${gs}"
       [ "$gu" -gt 0 ] && GD="${GD} ~${gu}"
       [ "$gq" -gt 0 ] && GD="${GD} ?${gq}"
+      # Detect git operation state
+      _GIT_DIR=$(git -C "$DIR" rev-parse --git-dir 2>/dev/null)
+      GIT_STATE=""
+      if [ -d "${_GIT_DIR}/rebase-merge" ]; then
+        _RB_CUR=$(cat "${_GIT_DIR}/rebase-merge/msgnum" 2>/dev/null)
+        _RB_END=$(cat "${_GIT_DIR}/rebase-merge/end" 2>/dev/null)
+        GIT_STATE="REBASING${_RB_CUR:+ ${_RB_CUR}/${_RB_END}}"
+      elif [ -d "${_GIT_DIR}/rebase-apply" ]; then
+        GIT_STATE="REBASING"
+      elif [ -f "${_GIT_DIR}/MERGE_HEAD" ]; then
+        GIT_STATE="MERGING"
+      elif [ -f "${_GIT_DIR}/CHERRY_PICK_HEAD" ]; then
+        GIT_STATE="CHERRY-PICK"
+      elif [ -f "${_GIT_DIR}/BISECT_LOG" ]; then
+        GIT_STATE="BISECTING"
+      fi
       UPSTREAM=$(git -C "$DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)
       GAB=""
       if [ -n "$UPSTREAM" ]; then
@@ -247,17 +279,19 @@ if [ -n "$DIR" ]; then
         [ "${AHEAD:-0}" -gt 0 ] && GAB="↑${AHEAD}"
         [ "${BEHIND:-0}" -gt 0 ] && GAB="${GAB}↓${BEHIND}"
       fi
-      GIT_INFO="${GB}|${GD}|${GAB}"
+      GIT_INFO="${GB}|${GD}|${GAB}|${GIT_STATE}"
     else
-      GIT_INFO="||"
+      GIT_INFO="|||"
     fi
     printf '%s' "$GIT_INFO" > "$GIT_CACHE"
   fi
   GB=$(printf '%s' "$GIT_INFO" | cut -d'|' -f1)
   GD=$(printf '%s' "$GIT_INFO" | cut -d'|' -f2)
   GAB=$(printf '%s' "$GIT_INFO" | cut -d'|' -f3)
+  GIT_STATE=$(printf '%s' "$GIT_INFO" | cut -d'|' -f4)
   if [ -n "$GB" ]; then
     GIT_DISPLAY="${MAGENTA} ${GB}${RST}"
+    [ -n "$GIT_STATE" ] && GIT_DISPLAY="${GIT_DISPLAY} ${RED}${BOLD}${GIT_STATE}${RST}"
     if [ -n "$GD" ]; then GIT_DISPLAY="${GIT_DISPLAY} ${YELLOW}[${GD}]${RST}"
     else GIT_DISPLAY="${GIT_DISPLAY} ${GREEN}✓${RST}"; fi
     [ -n "$GAB" ] && GIT_DISPLAY="${GIT_DISPLAY} ${CYAN}${GAB}${RST}"
