@@ -523,12 +523,18 @@ else
         {i: (.input_tokens // 0), o: (.output_tokens // 0),
          cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
       jq -s '{
+        input: (map(.i) | add // 0),
+        output: (map(.o) | add // 0),
+        cache_read: (map(.cr) | add // 0),
         tokens: (map(.i + .o + .cr) | add // 0),
         messages: length
       }' 2>/dev/null)
     DAY_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.tokens // 0' 2>/dev/null)
     DAY_SESSIONS=$(printf '%s' "$_DAY_STATS" | jq -r '.messages // 0' 2>/dev/null)
-    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST=''\n" "$DAY_TOK" "$DAY_SESSIONS" > "$DAILY_CACHE"
+    # Approximate cost using Sonnet 4.6 pricing: $3/1M input, $15/1M output, $0.30/1M cache read
+    DAY_COST=$(printf '%s' "$_DAY_STATS" | jq -r '[.input, .output, .cache_read] | @tsv' 2>/dev/null | \
+      awk -F'\t' '{printf "%.4f", ($1*3 + $2*15 + $3*0.3)/1000000}')
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\n" "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" > "$DAILY_CACHE"
   fi
 fi
 
