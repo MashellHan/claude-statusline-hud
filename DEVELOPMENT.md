@@ -121,10 +121,11 @@ Without this step, the user continues running the old version.
 
 ## Current Status
 
-- **Reviews completed:** 15 (001-015)
-- **Overall score:** 7.8/10 (DAY_COST $5,053 misleading for Max plan — needs billing detection)
-- **Features done:** 8 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits, native session_id)
-- **BLOCKING:** DAY_COST billing model detection (review-015 CRITICAL)
-- **Next priority:** Fix DAY_COST billing detection → autocompact countdown (P1.4)
+- **Reviews completed:** 16 (001-016)
+- **Overall score:** 8.2/10 (DAY_COST fix confirmed, 3 new features specced)
+- **Features done:** 8 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits*, native session_id)
+- **BLOCKING:** None
+- **Next priority:** Session ID badge + Skills count + MCP health (review-016) → autocompact (P1.4)
+- **Note:** rate_limits field not yet in Claude Code JSON (code ready, waiting on API)
 - **Roadmap:** See `.review/feature-roadmap-v2.md` for comprehensive priority queue
 - **Key discovery:** Official statusline JSON has `rate_limits` fields — first-to-market opportunity
