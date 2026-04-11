@@ -624,14 +624,16 @@ printf '%b\n' "$R4"
 # ROW 5: Daily Token Summary                            [DAILY]
 # =============================================================
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
-  R5D="${CYAN}day-total${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
-  R5D="${R5D} (${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  _TODAY_LABEL=$(date +%m-%d)
+  R5D="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
+  R5D="${R5D} ${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+  R5D="${R5D} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
   R5D="${R5D} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
-  R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST})"
+  R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
   [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
-    R5D="${R5D}${SEP}${CYAN}llm-msgs${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+    R5D="${R5D}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
-    R5D="${R5D}${SEP}${CYAN}≈cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
+    R5D="${R5D}${SEP}${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
   # Budget alert on daily row
   if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
