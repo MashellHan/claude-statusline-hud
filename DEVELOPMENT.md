@@ -121,8 +121,10 @@ Without this step, the user continues running the old version.
 
 ## Current Status
 
-- **Reviews completed:** 10 (001-010)
-- **Overall score:** 6.0/10 (dropped from 8.5 due to daily token data accuracy crisis)
-- **Features done:** 5 of 15 (daily tracking, git state, burn rate, token fix, layout)
-- **BLOCKING:** Daily token OOM bug fix + deploy (review-010)
-- **Next priority:** Fix daily token → deploy → autocompact countdown (P1)
+- **Reviews completed:** 12 (001-012)
+- **Overall score:** 7.8/10 (OOM fix deployed, daily token scanning working)
+- **Features done:** 6 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning)
+- **BLOCKING:** None — P0 resolved. Verify cache clear.
+- **Next priority:** Rate limit display (P1.1) → native session_id (P1.2) → budget alerts (P1.3)
+- **Roadmap:** See `.review/feature-roadmap-v2.md` for comprehensive priority queue
+- **Key discovery:** Official statusline JSON has `rate_limits` fields — first-to-market opportunity
