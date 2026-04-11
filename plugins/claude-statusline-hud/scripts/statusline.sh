@@ -434,26 +434,45 @@ fi
 CTX_LABEL="${VAL}${PCT}%${RST}"
 
 # ---- Build token display for context row ----
-TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
+# CTX_TOKENS = context window occupancy (derived from API percentage — most accurate)
+# SESSION_TOKENS = cumulative billing tokens (input snapshot + cumulative output)
+CTX_TOKENS=$((CTX_SIZE * PCT / 100))
+SESSION_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
 TOK_DISPLAY=""
-if [ "$TOTAL_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $TOTAL_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
+if [ "$CTX_TOKENS" -gt 0 ]; then
+  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $CTX_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}total-out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
+fi
+
+# ---- Cache hit rate (for Row 3) ----
+CACHE_HIT=""
+if [ "$TOTAL_INPUT" -gt 0 ]; then
+  CP=$((CACHE_READ * 100 / TOTAL_INPUT))
+  if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
+  CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
+fi
+
+# ---- Throughput (for Row 3) ----
+THROUGHPUT=""
+if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
+  TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
+  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
 [ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
+[ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
+[ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
 printf '%b\n' "$R3"
 
 # --- Token breakdown row (conditional): shown at 85%+ context ---
 if [ "$PCT" -ge 85 ] 2>/dev/null && [ "$TOTAL_INPUT" -gt 0 ] && [ "$TIER" != "compact" ]; then
-  CTX_TOTAL=$((TOTAL_INPUT + TOTAL_OUT))
-  printf '%b\n' "  ${DIM}tokens${RST} $(fmt_tok $CTX_TOTAL)/$(fmt_tok $CTX_SIZE) ${DIM}—${RST} ${DIM}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${DIM}cached${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${DIM}created${RST} ${YELLOW}$(fmt_tok $CACHE_CREATE)${RST} ${DIM}out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST}"
+  printf '%b\n' "  ${DIM}tokens${RST} $(fmt_tok $CTX_TOKENS)/$(fmt_tok $CTX_SIZE) ${DIM}—${RST} ${DIM}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${DIM}cached${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${DIM}created${RST} ${YELLOW}$(fmt_tok $CACHE_CREATE)${RST} ${DIM}total-out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST}"
 fi
 
 [ "$PRESET" = "essential" ] && exit 0
 
 # =============================================================
-# ROW 4: Stats — Cost │ Duration │ Lines │ Cache │ Speed  [FULL+]
+# ROW 4: Stats — Cost │ Duration │ Lines │ Day-tok        [FULL+]
 # =============================================================
 
 # --- Daily token/cost tracking ---
@@ -462,15 +481,16 @@ DAILY_LOG="$DAILY_DIR/daily.jsonl"
 DAILY_CACHE="/tmp/.claude_sl_daily_$(id -u)"
 DAY_COST="" DAY_TOK=""
 
-if [ -n "$TRANSCRIPT" ] && [ "$TOTAL_TOKENS" -gt 0 ]; then
+if [ -n "$TRANSCRIPT" ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   mkdir -p "$DAILY_DIR" 2>/dev/null
   TODAY=$(date +%Y-%m-%d)
-  _ENTRY="{\"date\":\"${TODAY}\",\"sid\":\"${_SID}\",\"tokens\":${TOTAL_TOKENS},\"cost\":${COST_RAW}}"
+  _ENTRY="{\"date\":\"${TODAY}\",\"sid\":\"${_SID}\",\"tokens\":${SESSION_TOKENS},\"cost\":${COST_RAW}}"
 
   # Dedup: remove any existing entry for this session ID, then append
-  if [ -f "$DAILY_LOG" ] && grep -q "\"sid\":\"${_SID}\"" "$DAILY_LOG" 2>/dev/null; then
-    _OLD_TOK=$(grep "\"sid\":\"${_SID}\"" "$DAILY_LOG" | tail -1 | jq -r '.tokens // 0' 2>/dev/null)
-    if [ "$_OLD_TOK" != "$TOTAL_TOKENS" ]; then
+  _EXISTING=$(grep "\"sid\":\"${_SID}\"" "$DAILY_LOG" 2>/dev/null | tail -1)
+  if [ -f "$DAILY_LOG" ] && [ -n "$_EXISTING" ]; then
+    _OLD_TOK=$(printf '%s' "$_EXISTING" | jq -r '.tokens // 0' 2>/dev/null)
+    if [ "$_OLD_TOK" != "$SESSION_TOKENS" ]; then
       sed -i.bak "/\"sid\":\"${_SID}\"/d" "$DAILY_LOG" && rm -f "${DAILY_LOG}.bak"
       printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
       rm -f "$DAILY_CACHE"
