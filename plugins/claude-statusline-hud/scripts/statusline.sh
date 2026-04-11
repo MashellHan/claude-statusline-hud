@@ -4,10 +4,10 @@
 # ================================================================
 #  Presets (set via CLAUDE_STATUSLINE_PRESET or ~/.claude/statusline-preset):
 #
-#    minimal   — 1 row:  [Model | Max]  Dir  Git
-#    essential — 2 rows: + Activity (when active), Context/Usage bars
-#    full      — 3–4 rows: + Stats (cost, time, code, etc.)
-#    vitals    — 4–5 rows: + System vitals (CPU, Mem, GPU, Disk, Battery)  (default)
+#    minimal   — 1 row:  [Model | Max] Dir Git │ context bar
+#    essential — 2 rows: + Turn info (tokens, speed, tools)
+#    full      — 4 rows: + Session stats + Daily summary
+#    vitals    — 5 rows: + System vitals (CPU, Mem, GPU, Disk, Battery)  (default)
 # ================================================================
 
 set -f  # disable globbing for safety
@@ -325,8 +325,24 @@ if [ -f "/tmp/.claude_sl_update_available" ]; then
   [ -n "$NEW_VER" ] && UPDATE_BADGE="${SEP}${YELLOW}${BOLD}↑ v${NEW_VER}${RST}"
 fi
 
+# --- Precompute context bar (needed for Row 1) ---
+# Autocompact buffer estimation: inflate by ~10% above 70% to reflect true context pressure
+TOTAL_INPUT=$((INPUT_TOK + CACHE_CREATE + CACHE_READ))
+ADJ_PCT=$PCT
+if [ "$PCT" -ge 70 ] 2>/dev/null; then
+  ADJ_PCT=$(( PCT + (PCT - 70) * 10 / 30 ))
+  [ "$ADJ_PCT" -gt 100 ] && ADJ_PCT=100
+fi
+CTX_CLR=$(bar_color "$ADJ_PCT")
+CTX_BAR=$(make_bar "$ADJ_PCT" "$BAR_W")
+CTX_WARN=""
+if [ "$EXCEEDS_200K" = "true" ] || [ "$ADJ_PCT" -ge 90 ] 2>/dev/null; then
+  CTX_WARN=" ${BOLD}${BG_YELLOW} ⚠ ${RST}"
+fi
+CTX_LABEL="${VAL}${PCT}%${RST}"
+
 # =============================================================
-# ROW 1: [Model | Max] │ Dir │ Git │ Badges │ Update  [ALL]
+# ROW 1: [Model | Max] │ Dir │ Git │ Badges │ context bar  [ALL]
 # =============================================================
 if [ "$_THEME" = "light" ]; then
   R1="${CYAN}[${MODEL_LABEL} | Max]${RST}"
@@ -337,25 +353,70 @@ R1="${R1}${SEP}${BOLD}${GREEN}${DIR_NAME}${RST}"
 [ -n "$GIT_DISPLAY" ] && R1="${R1}${SEP}${GIT_DISPLAY}"
 [ -n "$BADGES" ] && R1="${R1}${BADGES}"
 [ -n "$UPDATE_BADGE" ] && R1="${R1}${UPDATE_BADGE}"
+# Append context bar
+if [ "$TIER" = "compact" ]; then
+  R1="${R1}${SEP}${CYAN}ctx${RST} ${CTX_CLR}${CTX_LABEL}${RST}${CTX_WARN}"
+else
+  R1="${R1}${SEP}${CYAN}context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
+fi
 printf '%b\n' "$R1"
 
 [ "$PRESET" = "minimal" ] && exit 0
 
 # =============================================================
-# ROW 2 (conditional): Live Activity — Tools │ Todos │ Agents
-#   Shown when there's active work. Parsed from transcript.
-#   Cached 2s. Appears in ESSENTIAL+ presets.
+# ROW 2: Turn-level — per-turn tokens │ cache │ speed │ tools  [ESSENTIAL+]
 # =============================================================
 
+# --- Precompute turn-level metrics ---
+TURN_DISPLAY=""
+if [ "$INPUT_TOK" -gt 0 ] 2>/dev/null || [ "$CACHE_READ" -gt 0 ] 2>/dev/null; then
+  TURN_DISPLAY="${CYAN}turn${RST} ${DIM}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST}"
+  [ "$CACHE_READ" -gt 0 ] 2>/dev/null && TURN_DISPLAY="${TURN_DISPLAY} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
+  [ "$TIER" = "wide" ] && [ "$CACHE_CREATE" -gt 0 ] 2>/dev/null && \
+    TURN_DISPLAY="${TURN_DISPLAY} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
+fi
+
+# Cache hit rate (per-turn)
+CACHE_HIT=""
+if [ "$TOTAL_INPUT" -gt 0 ]; then
+  CP=$((CACHE_READ * 100 / TOTAL_INPUT))
+  if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
+  CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
+fi
+
+# Throughput (per-turn)
+THROUGHPUT=""
+if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
+  TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
+  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
+fi
+
+# Rate limit indicator
+RL_DISPLAY=""
+if [ "$RL_5H_PCT" -gt 0 ] 2>/dev/null; then
+  RL_CLR=$(bar_color "$RL_5H_PCT")
+  RL_DISPLAY="${CYAN}rl${RST} ${RL_CLR}${VAL}${RL_5H_PCT}%${RST}"
+  if [ "$RL_5H_RESET" -gt 0 ] 2>/dev/null; then
+    _RL_LEFT=$(( RL_5H_RESET - NOW ))
+    if [ "$_RL_LEFT" -gt 0 ]; then
+      _RL_H=$(( _RL_LEFT / 3600 ))
+      _RL_M=$(( (_RL_LEFT % 3600) / 60 ))
+      if [ "$_RL_H" -gt 0 ]; then
+        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_H}h${_RL_M}m${RST}"
+      else
+        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_M}m${RST}"
+      fi
+    fi
+  fi
+fi
+
+# Tool activity (last 3 tools, cached 2s)
 ACTIVITY_CACHE="/tmp/.claude_sl_activity_${_SID}"
 ACTIVITY_LINE=""
-
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if [ "$(file_age "$ACTIVITY_CACHE")" -lt 2 ]; then
     ACTIVITY_LINE=$(cat "$ACTIVITY_CACHE")
   else
-    # Transcript JSONL: tools are nested in .message.content[]
-    # Step 1: Extract lightweight events line-by-line via jq -c pipe (no slurp)
     tail -80 "$TRANSCRIPT" 2>/dev/null | jq -c '
       [(.message.content // [])[] | select(.type == "tool_use" or .type == "tool_result") |
         if .type == "tool_use" then
@@ -377,8 +438,6 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
         else {t: "r", id: .tool_use_id} end
       ][]
     ' 2>/dev/null > "$EVENTS_FILE"
-
-    # Step 2: Build display from extracted events (single slurp of small data)
     ACTIVITY_LINE=""
     if [ -s "$EVENTS_FILE" ]; then
       ACTIVITY_LINE=$(jq -rs '
@@ -387,23 +446,14 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
           elif $e.t == "r" then .[$e.id].done = true
           else . end
         )) as $tools |
-        ([$tools | to_entries | .[-5:] | reverse[] |
+        ([$tools | to_entries | .[-3:] | reverse[] |
           if .value.done then "✓ " + .value.name
           else "◐ " + .value.name + (if .value.target != "" then " " + .value.target else "" end) end
         ] | join(" · ")) as $tool_str |
-        ([$tools | to_entries[] | select(.value.name == "TodoWrite")] |
-          if length > 0 then
-            (last.value.target | split(" ") | .[0]) as $counts |
-            (last.value.target | split(" ") | .[1:] | join(" ")) as $task_name |
-            if ($task_name | length) > 0 then "▸ " + $task_name + " (" + $counts + ")"
-            elif ($counts | length) > 0 then "✓ todos " + $counts
-            else "" end
-          else "" end
-        ) as $todo_str |
         ([$tools | to_entries[] | select(.value.name == "Agent" and .value.done == false)] |
           if length > 0 then (first | "⚡ " + .value.target) else "" end
         ) as $agent_str |
-        [[$tool_str, $todo_str, $agent_str] | .[] | select(length > 0)] | join("  │  ")
+        [[$tool_str, $agent_str] | .[] | select(length > 0)] | join("  │  ")
       ' "$EVENTS_FILE" 2>/dev/null)
     fi
     rm -f "$EVENTS_FILE"
@@ -411,9 +461,30 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   fi
 fi
 
-if [ -n "$ACTIVITY_LINE" ]; then
-  printf '%b\n' "${DIM}›${RST} ${ACTIVITY_LINE}"
+# --- Assemble Row 2 ---
+R2=""
+[ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
+if [ "$TIER" != "compact" ]; then
+  [ -n "$CACHE_HIT" ] && R2="${R2:+${R2}${SEP}}${CACHE_HIT}"
+  [ -n "$THROUGHPUT" ] && R2="${R2:+${R2}${SEP}}${THROUGHPUT}"
 fi
+[ -n "$RL_DISPLAY" ] && R2="${R2:+${R2}${SEP}}${RL_DISPLAY}"
+if [ -n "$ACTIVITY_LINE" ]; then
+  R2="${R2:+${R2}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
+fi
+[ -n "$R2" ] && printf '%b\n' "$R2"
+
+# --- Token breakdown row (conditional): shown at 85%+ context ---
+CTX_TOKENS=$((CTX_SIZE * PCT / 100))
+if [ "$PCT" -ge 85 ] 2>/dev/null && [ "$TOTAL_INPUT" -gt 0 ] && [ "$TIER" != "compact" ]; then
+  printf '%b\n' "  ${DIM}tokens${RST} $(fmt_tok $CTX_TOKENS)/$(fmt_tok $CTX_SIZE) ${DIM}—${RST} ${DIM}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${DIM}cached${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${DIM}created${RST} ${YELLOW}$(fmt_tok $CACHE_CREATE)${RST} ${DIM}total-out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST}"
+fi
+
+[ "$PRESET" = "essential" ] && exit 0
+
+# =============================================================
+# ROW 3: Session-level — token │ msg │ time │ cost │ code  [FULL+]
+# =============================================================
 
 # --- Session message & compact counts (from transcript, cached 10s) ---
 SESS_USER_MSGS=0 SESS_LLM_MSGS=0 SESS_COMPACTS=0
@@ -422,7 +493,6 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if [ "$(file_age "$SESS_MSG_CACHE")" -lt 10 ] && [ -f "$SESS_MSG_CACHE" ]; then
     . "$SESS_MSG_CACHE"
   else
-    # Count user messages, LLM (assistant) messages, and compaction boundaries
     _SESS_COUNTS=$(jq -r '.type + ":" + (.subtype // "")' "$TRANSCRIPT" 2>/dev/null | \
       awk -F: '
         $1=="user"      {u++}
@@ -438,99 +508,61 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   fi
 fi
 
-# =============================================================
-# ROW 3: Context bar │ Tokens │ Cache │ Speed        [ESSENTIAL+]
-# =============================================================
-
-# --- Autocompact buffer estimation ---
-# Inflate by ~10% above 70% to reflect true context pressure.
-TOTAL_INPUT=$((INPUT_TOK + CACHE_CREATE + CACHE_READ))
-ADJ_PCT=$PCT
-if [ "$PCT" -ge 70 ] 2>/dev/null; then
-  ADJ_PCT=$(( PCT + (PCT - 70) * 10 / 30 ))
-  [ "$ADJ_PCT" -gt 100 ] && ADJ_PCT=100
-fi
-
-CTX_CLR=$(bar_color "$ADJ_PCT")
-CTX_BAR=$(make_bar "$ADJ_PCT" "$BAR_W")
-
-# --- Context warning: ⚠ when exceeds 200k OR adjusted PCT ≥ 90% ---
-CTX_WARN=""
-if [ "$EXCEEDS_200K" = "true" ] || [ "$ADJ_PCT" -ge 90 ] 2>/dev/null; then
-  CTX_WARN=" ${BOLD}${BG_YELLOW} ⚠ ${RST}"
-fi
-
-CTX_LABEL="${VAL}${PCT}%${RST}"
-
-# ---- Build token display for context row ----
-# CTX_TOKENS = context window occupancy (derived from API percentage — most accurate)
-# SESSION_TOKENS = cumulative billing tokens (total_input_tokens + total_output_tokens)
-CTX_TOKENS=$((CTX_SIZE * PCT / 100))
+# --- Precompute session-level metrics ---
 SESSION_TOKENS=$((TOTAL_INPUT_CUM + TOTAL_OUT))
-# Use whichever is larger: cumulative billing tokens or context occupancy estimate
+# Fallback: use context occupancy estimate if cumulative fields missing
 _TOK_HEADLINE=$SESSION_TOKENS
 [ "$CTX_TOKENS" -gt "$_TOK_HEADLINE" ] 2>/dev/null && _TOK_HEADLINE=$CTX_TOKENS
-TOK_DISPLAY=""
+
+COST_FMT=$(fmt_cost "$COST_RAW")
+DUR=$(fmt_dur "$DURATION_MS")
+EFF=""
+if [ "$DURATION_MS" -gt 0 ] && [ "$API_MS" -gt 0 ]; then
+  EFF=" (${CYAN}api${RST} ${VAL}$((API_MS * 100 / DURATION_MS))%${RST})"
+fi
+
+LINES=""
+if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
+  NET=$((LINES_ADD - LINES_DEL))
+  if [ "$NET" -gt 0 ]; then NI="${GREEN}▲${RST}"
+  elif [ "$NET" -lt 0 ]; then NI="${RED}▼${RST}"
+  else NI="${YELLOW}═${RST}"; fi
+  LINES="${GREEN}+${LINES_ADD}${RST} ${RED}-${LINES_DEL}${RST} ${NI}"
+fi
+
+BURN_RATE=""
+if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
+  BURN_COST_HR=$(awk -v d="$DURATION_MS" -v c="$COST_RAW" 'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
+  BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
+fi
+
+# --- Assemble Row 3 ---
+R3="${CYAN}session${RST}"
+if [ -n "$SESSION_ID" ]; then
+  _SID_SHORT="${SESSION_ID:0:8}"
+  R3="${CYAN}session${RST}${DIM}(${RST}${VAL}${_SID_SHORT}${RST}${DIM})${RST}"
+fi
+# Session tokens
 if [ "$_TOK_HEADLINE" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $_TOK_HEADLINE)${RST}"
-  if [ "$TIER" = "wide" ]; then
-    TOK_DISPLAY="${TOK_DISPLAY} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}${DIM})${RST}"
-  fi
+  R3="${R3} ${CYAN}token${RST} ${VAL}$(fmt_tok $_TOK_HEADLINE)${RST}"
 fi
-
-# ---- Cache hit rate (for Row 3) ----
-CACHE_HIT=""
-if [ "$TOTAL_INPUT" -gt 0 ]; then
-  CP=$((CACHE_READ * 100 / TOTAL_INPUT))
-  if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
-  CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
+# Message counts: compact user↑llm↓ format
+if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/null; then
+  R3="${R3}${SEP}${CYAN}msg${RST} ${VAL}${SESS_USER_MSGS}↑${SESS_LLM_MSGS}↓${RST}"
+  [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && R3="${R3} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
 fi
-
-# ---- Throughput (for Row 3) ----
-THROUGHPUT=""
-if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
-  TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
-fi
-
-# ---- Rate limit indicator (for Row 3) ----
-RL_DISPLAY=""
-if [ "$RL_5H_PCT" -gt 0 ] 2>/dev/null; then
-  RL_CLR=$(bar_color "$RL_5H_PCT")
-  RL_DISPLAY="${CYAN}rl${RST} ${RL_CLR}${VAL}${RL_5H_PCT}%${RST}"
-  # Show reset countdown if available
-  if [ "$RL_5H_RESET" -gt 0 ] 2>/dev/null; then
-    _RL_LEFT=$(( RL_5H_RESET - NOW ))
-    if [ "$_RL_LEFT" -gt 0 ]; then
-      _RL_H=$(( _RL_LEFT / 3600 ))
-      _RL_M=$(( (_RL_LEFT % 3600) / 60 ))
-      if [ "$_RL_H" -gt 0 ]; then
-        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_H}h${_RL_M}m${RST}"
-      else
-        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_M}m${RST}"
-      fi
-    fi
-  fi
-fi
-
-R3="${CYAN}context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
-[ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
-[ -n "$RL_DISPLAY" ] && R3="${R3}${SEP}${RL_DISPLAY}"
-if [ "$TIER" != "compact" ]; then
-  [ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
-  [ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
-fi
+# Time
+R3="${R3}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
+# Cost
+R3="${R3}${SEP}${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+# Code changes
+[ -n "$LINES" ] && R3="${R3}${SEP}${CYAN}code${RST} ${LINES}"
+# Burn rate
+[ -n "$BURN_RATE" ] && R3="${R3}${SEP}${BURN_RATE}"
 printf '%b\n' "$R3"
 
-# --- Token breakdown row (conditional): shown at 85%+ context ---
-if [ "$PCT" -ge 85 ] 2>/dev/null && [ "$TOTAL_INPUT" -gt 0 ] && [ "$TIER" != "compact" ]; then
-  printf '%b\n' "  ${DIM}tokens${RST} $(fmt_tok $CTX_TOKENS)/$(fmt_tok $CTX_SIZE) ${DIM}—${RST} ${DIM}in${RST} ${BOLD}$(fmt_tok $INPUT_TOK)${RST} ${DIM}cached${RST} ${GREEN}${BOLD}$(fmt_tok $CACHE_READ)${RST} ${DIM}created${RST} ${YELLOW}$(fmt_tok $CACHE_CREATE)${RST} ${DIM}total-out${RST} ${BOLD}$(fmt_tok $TOTAL_OUT)${RST}"
-fi
-
-[ "$PRESET" = "essential" ] && exit 0
-
 # =============================================================
-# ROW 4: Stats — Cost │ Duration │ Lines │ Day-tok        [FULL+]
+# ROW 4: Daily Token Summary                            [FULL+]
 # =============================================================
 
 # --- Daily token tracking (transcript-based — scans ALL sessions today) ---
@@ -543,9 +575,6 @@ else
   TODAY=$(date +%Y-%m-%d)
   _PROJECTS_DIR="$HOME/.claude/projects"
   if [ -d "$_PROJECTS_DIR" ]; then
-    # Two-stage pipeline: streaming extract → aggregate
-    # Stage 1: jq -c extracts tiny {i,o,cr} objects (streaming, constant memory)
-    # Stage 2: jq -s aggregates the small objects (a few KB, not 33MB)
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
       -newermt "$TODAY 00:00" 2>/dev/null | \
       xargs grep -h "input_tokens" 2>/dev/null | \
@@ -564,8 +593,6 @@ else
     DAY_INPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.input // 0' 2>/dev/null)
     DAY_OUTPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.output // 0' 2>/dev/null)
     DAY_CACHE_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.cache_read // 0' 2>/dev/null)
-    # Only estimate daily cost if user appears to be on API billing
-    # (COST_RAW > 0 indicates per-token billing, not Max subscription)
     _SHOW_COST=false
     if [ "${CLAUDE_SL_SHOW_API_EQUIV_COST:-0}" = "1" ]; then
       _SHOW_COST=true
@@ -574,7 +601,6 @@ else
       [ "$_IS_API" = "yes" ] && _SHOW_COST=true
     fi
     if [ "$_SHOW_COST" = true ]; then
-      # Approximate cost using Sonnet pricing: $3/$15/$0.30 per 1M tokens
       DAY_COST=$(printf '%s' "$_DAY_STATS" | jq -r '[.input, .output, .cache_read] | @tsv' 2>/dev/null | \
         awk -F'\t' '{printf "%.4f", ($1*3 + $2*15 + $3*0.3)/1000000}')
     else
@@ -585,64 +611,19 @@ else
   fi
 fi
 
-COST_FMT=$(fmt_cost "$COST_RAW")
-DUR=$(fmt_dur "$DURATION_MS")
-EFF=""
-if [ "$DURATION_MS" -gt 0 ] && [ "$API_MS" -gt 0 ]; then
-  EFF=" (${CYAN}api${RST} ${VAL}$((API_MS * 100 / DURATION_MS))%${RST})"
-fi
-
-LINES=""
-if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
-  NET=$((LINES_ADD - LINES_DEL))
-  if [ "$NET" -gt 0 ]; then NI="${GREEN}▲${RST}"
-  elif [ "$NET" -lt 0 ]; then NI="${RED}▼${RST}"
-  else NI="${YELLOW}═${RST}"; fi
-  LINES="${GREEN}+${LINES_ADD}${RST} ${RED}-${LINES_DEL}${RST} ${NI}"
-fi
-
-# ---- Burn rate: hourly cost projection ----
-BURN_RATE=""
-if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
-  # Hourly cost projection: cost_so_far / duration_hours
-  BURN_COST_HR=$(awk -v d="$DURATION_MS" -v c="$COST_RAW" 'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
-  BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
-fi
-
-R4="${CYAN}session${RST}"
-# Show truncated session ID in parens if available
-if [ -n "$SESSION_ID" ]; then
-  _SID_SHORT="${SESSION_ID:0:8}"
-  R4="${CYAN}session${RST}${DIM}(${RST}${VAL}${_SID_SHORT}${RST}${DIM})${RST}"
-fi
-R4="${R4} ${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
-R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
-[ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
-[ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
-# Session message counts: user/llm + compact count
-if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/null; then
-  R4="${R4}${SEP}${CYAN}msg-user${RST} ${VAL}${SESS_USER_MSGS}${RST} ${CYAN}msg-llm${RST} ${VAL}${SESS_LLM_MSGS}${RST}"
-  [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && \
-    R4="${R4} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
-fi
-printf '%b\n' "$R4"
-
-# =============================================================
-# ROW 5: Daily Token Summary                            [DAILY]
-# =============================================================
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   _TODAY_LABEL=$(date +%m-%d)
-  R5D="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
-  R5D="${R5D} ${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
-  R5D="${R5D} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
-  R5D="${R5D} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
-  R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
+  R4="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
+  R4="${R4} ${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+  R4="${R4} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  R4="${R4} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
+  R4="${R4} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
   [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
-    R5D="${R5D}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+    R4="${R4}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
-    R5D="${R5D}${SEP}${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
+    R4="${R4}${SEP}${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
-  # Budget alert on daily row
+  # Budget alert
   if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
     _DAY_COST_RAW="${DAY_COST:-0}"
     if [ -n "$_DAY_COST_RAW" ] && [ "$_DAY_COST_RAW" != "0" ]; then
@@ -651,10 +632,10 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
       _BUDGET_CLR=$(bar_color "$_BUDGET_PCT")
       _BUDGET_WARN=""
       [ "$_BUDGET_PCT" -ge 90 ] 2>/dev/null && _BUDGET_WARN=" ⚠️"
-      R5D="${R5D}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}≈$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
+      R4="${R4}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}≈$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
     fi
   fi
-  printf '%b\n' "$R5D"
+  printf '%b\n' "$R4"
 fi
 
 [ "$PRESET" = "full" ] && exit 0

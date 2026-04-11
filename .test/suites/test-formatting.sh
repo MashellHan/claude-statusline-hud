@@ -17,15 +17,15 @@ begin_suite "formatting"
 # ================================================================
 
 # Small tokens: exact number
-run_statusline "$(make_json '{"context_window":{"used_percentage":50,"total_output_tokens":500,"current_usage":{"input_tokens":500,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"context_window_size":200000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":50,"total_output_tokens":500,"current_usage":{"input_tokens":500,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"context_window_size":200000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "100k" "fmt_tok: ctx_tokens at 50% of 200k = 100k"
 
 # Thousands: "Nk"
-run_statusline "$(make_json '{"context_window":{"used_percentage":10,"total_output_tokens":5000,"current_usage":{"input_tokens":15000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000},"context_window_size":200000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":10,"total_output_tokens":5000,"current_usage":{"input_tokens":15000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000},"context_window_size":200000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "20k" "fmt_tok: ctx_tokens at 10% of 200k = 20k"
 
 # Millions: "NM"
-run_statusline "$(make_json '{"context_window":{"used_percentage":75,"total_output_tokens":500000,"current_usage":{"input_tokens":800000,"cache_creation_input_tokens":100000,"cache_read_input_tokens":200000},"context_window_size":2000000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":75,"total_output_tokens":500000,"current_usage":{"input_tokens":800000,"cache_creation_input_tokens":100000,"cache_read_input_tokens":200000},"context_window_size":2000000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "1M" "fmt_tok: ctx_tokens at 75% of 2M = 1.5M → 1M"
 
 # ================================================================

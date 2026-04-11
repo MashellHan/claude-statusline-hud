@@ -17,15 +17,15 @@ begin_suite "calculations"
 # ================================================================
 
 # 200000 * 50 / 100 = 100000 → "100k"
-run_statusline "$(make_json '{"context_window":{"used_percentage":50,"context_window_size":200000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":50,"context_window_size":200000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "100k" "CTX_TOKENS: 200k*50% = 100k"
 
 # 200000 * 10 / 100 = 20000 → "20k"
-run_statusline "$(make_json '{"context_window":{"used_percentage":10,"context_window_size":200000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":10,"context_window_size":200000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "20k" "CTX_TOKENS: 200k*10% = 20k"
 
 # 200000 * 0 / 100 = 0 → token display hidden
-run_statusline "$(make_json '{"context_window":{"used_percentage":0,"context_window_size":200000,"total_output_tokens":0,"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":0,"context_window_size":200000,"total_output_tokens":0,"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}')" "full" 120
 assert_not_contains "$STATUSLINE_PLAIN" "token" "CTX_TOKENS: 0 → no token display"
 
 # ================================================================
