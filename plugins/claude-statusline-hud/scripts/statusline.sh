@@ -540,12 +540,27 @@ if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
   LINES="${GREEN}+${LINES_ADD}${RST} ${RED}-${LINES_DEL}${RST} ${NI}"
 fi
 
+# ---- Burn rate: token consumption speed + hourly cost projection ----
+BURN_RATE=""
+if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
+  # Tokens per minute
+  BURN_TPM=$((SESSION_TOKENS * 60000 / DURATION_MS))
+  # Hourly cost projection: (cost_so_far / duration_hours) * 1
+  # Use awk for floating-point: cost_raw / (duration_ms / 3600000)
+  BURN_COST_HR=$(awk "BEGIN{d=${DURATION_MS}/3600000; if(d>0) printf \"%.2f\", ${COST_RAW}/d; else print 0}")
+  BURN_RATE="${YELLOW}🔥${RST}${VAL}$(fmt_tok "$BURN_TPM")/min${RST}"
+  if [ "$TIER" != "compact" ]; then
+    BURN_RATE="${BURN_RATE} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
+  fi
+fi
+
 R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
   R4="${R4} ${DIM}(day${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}${DIM})${RST}"
 fi
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
+[ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
 fi
