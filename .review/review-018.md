@@ -20,7 +20,7 @@ Two changes to Row 2:
 ## Current Row 2
 
 ```
-› ✓ Bash · ✓ Edit · ✓ Write · ✓ Edit · ✓ Bash
+› ✓ Bash · ✓ Edit · ✓ Write
 ```
 
 No context — user doesn't know this is "recent tool calls". The `›` prefix is too subtle.
@@ -33,7 +33,7 @@ tools ✓ Bash · ✓ Edit · ✓ Write │ turn in 616 cache 149K out 3.2K
 
 Or in wide mode with more detail:
 ```
-tools ✓ Bash · ✓ Edit · ✓ Write · ✓ Edit · ✓ Bash │ last-turn in 616 cache-read 149K out 3.2K
+tools ✓ Bash · ✓ Edit · ✓ Write │ last-turn in 616 cache-read 149K out 3.2K
 ```
 
 ---
@@ -121,12 +121,12 @@ tools ✓ Bash · ✓ Edit · ✓ Write │ turn in 616 cache 149K │ msgs 87�
 
 **Wide mode (≥100 cols):**
 ```
-tools ✓ Bash · ✓ Edit · ✓ Write · ✓ Edit · ✓ Bash │ turn in 616 cache 149K create 0 │ msgs 87↑605↓ 10⟳
+tools ✓ Bash · ✓ Edit · ✓ Write │ turn in 616 cache 149K create 0 │ msgs 87↑605↓ 10⟳
 ```
 
 **Compact mode (<70 cols):**
 ```
-tools ✓ Bash · ✓ Edit │ turn in 616 cache 149K
+tools ✓ Bash · ✓ Edit · ✓ Write │ turn in 616 cache 149K
 ```
 
 **With active (in-progress) tool:**
@@ -154,9 +154,10 @@ tools ◐ Bash git status · ✓ Edit │ turn in 616 cache 149K
 
 **`plugins/claude-statusline-hud/scripts/statusline.sh`**
 
-1. **Line 415:** Change `${DIM}›${RST}` to `${CYAN}tools${RST}`
-2. **Lines 414-416:** Replace simple output with combined Row 2 assembly (tools + turn + msgs)
-3. Move the `SESS_USER_MSGS` display from unused to integrated in Row 2
+1. **Line 390:** Change `[-5:]` to `[-3:]` — show last 3 tools instead of 5
+2. **Line 415:** Change `${DIM}›${RST}` to `${CYAN}tools${RST}`
+3. **Lines 414-416:** Replace simple output with combined Row 2 assembly (tools + turn + msgs)
+4. Move the `SESS_USER_MSGS` display from unused to integrated in Row 2
 
 ### Lines of Code
 
