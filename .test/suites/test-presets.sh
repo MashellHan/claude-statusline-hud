@@ -48,5 +48,24 @@ run_statusline "$(cat "$FIXTURES_DIR/full-session.json")" "" 120
 # Default is vitals — statusline.sh reads from file or defaults to "vitals"
 assert_contains "$STATUSLINE_PLAIN" "cpu" "default preset shows vitals (cpu)"
 
+# --- essential shows turn-level on Row 2 but NOT session-level ---
+run_fixture "full-session" "essential" 120
+assert_contains "$STATUSLINE_PLAIN" "turn" "essential shows turn on Row 2"
+assert_contains "$STATUSLINE_PLAIN" "cache" "essential shows cache hit rate"
+assert_not_contains "$STATUSLINE_PLAIN" "session" "essential does NOT show session row"
+assert_not_contains "$STATUSLINE_PLAIN" "day-total" "essential does NOT show daily row"
+
+# --- full shows session-level on Row 3 ---
+run_fixture "full-session" "full" 120
+assert_contains "$STATUSLINE_PLAIN" "session" "full shows session on Row 3"
+assert_contains "$STATUSLINE_PLAIN" "cost" "full shows cost on Row 3"
+assert_contains "$STATUSLINE_PLAIN" "time" "full shows time on Row 3"
+assert_contains "$STATUSLINE_PLAIN" "code" "full shows code lines on Row 3"
+assert_not_contains "$STATUSLINE_PLAIN" "cpu" "full does NOT show vitals"
+
+# --- minimal shows context inline on Row 1 (not separate row) ---
+run_fixture "minimal" "minimal" 120
+assert_line_count "$STATUSLINE_PLAIN" "1" "minimal is exactly 1 row with inline context"
+
 end_suite
 teardown_test_env

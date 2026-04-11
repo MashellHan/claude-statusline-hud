@@ -89,5 +89,18 @@ run_statusline "$(make_json '{"cost":{"total_duration_ms":300000,"total_api_dura
 assert_contains "$STATUSLINE_PLAIN" "api" "API efficiency shown"
 assert_contains "$STATUSLINE_PLAIN" "60%" "API efficiency = 180000/300000 = 60%"
 
+# ================================================================
+# Turn-level display on essential preset (Row 2)
+# ================================================================
+
+# Turn with input tokens shows on essential
+run_statusline "$(make_json '{"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":30000},"total_output_tokens":8000}}')" "essential" 120
+assert_contains "$STATUSLINE_PLAIN" "turn" "essential shows turn display"
+assert_contains "$STATUSLINE_PLAIN" "in" "essential turn shows input tokens"
+
+# Turn out token visible when > 0
+run_statusline "$(make_json '{"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"total_output_tokens":15000}}')" "essential" 120
+assert_contains "$STATUSLINE_PLAIN" "out" "essential turn shows out tokens when > 0"
+
 end_suite
 teardown_test_env
