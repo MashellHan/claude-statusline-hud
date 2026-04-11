@@ -67,13 +67,14 @@ eval "$(printf '%s' "$input" | jq -r '
   @sh "TRANSCRIPT=\(.transcript_path // "")",
   @sh "CTX_SIZE=\(.context_window.context_window_size // 200000)",
   @sh "RL_5H_PCT=\(.rate_limits.five_hour.used_percentage // 0 | floor)",
-  @sh "RL_5H_RESET=\(.rate_limits.five_hour.resets_at // 0 | floor)"
+  @sh "RL_5H_RESET=\(.rate_limits.five_hour.resets_at // 0 | floor)",
+  @sh "SESSION_ID=\(.session_id // "")"
 ' 2>/dev/null)" || {
   # Fallback: if jq fails, set safe defaults
   MODEL="Unknown" DIR="" PCT=0 COST_RAW=0 DURATION_MS=0 API_MS=0
   LINES_ADD=0 LINES_DEL=0 VIM_MODE="" AGENT_NAME="" WT_NAME="" WT_BRANCH=""
   EXCEEDS_200K=false INPUT_TOK=0 CACHE_CREATE=0 CACHE_READ=0 TOTAL_OUT=0
-  TRANSCRIPT="" CTX_SIZE=200000 RL_5H_PCT=0 RL_5H_RESET=0
+  TRANSCRIPT="" CTX_SIZE=200000 RL_5H_PCT=0 RL_5H_RESET=0 SESSION_ID=""
 }
 
 # --- Smart directory name ---
@@ -225,7 +226,9 @@ file_age() {
 NOW=$(date +%s)
 
 # --- Session ID for cache isolation ---
-if [ -n "$TRANSCRIPT" ]; then
+if [ -n "$SESSION_ID" ]; then
+  _SID="$SESSION_ID"
+elif [ -n "$TRANSCRIPT" ]; then
   _SID=$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')
 else
   _SID="$$"
@@ -562,6 +565,18 @@ R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+fi
+# --- Daily cost budget alert ---
+if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
+  _DAY_COST_RAW="${DAY_COST:-0}"
+  if [ -n "$_DAY_COST_RAW" ] && [ "$_DAY_COST_RAW" != "0" ]; then
+    _BUDGET_PCT=$(awk -v c="$_DAY_COST_RAW" -v b="$CLAUDE_SL_DAILY_BUDGET" \
+      'BEGIN{if(b>0) printf "%d", (c/b)*100; else print 0}')
+    _BUDGET_CLR=$(bar_color "$_BUDGET_PCT")
+    _BUDGET_WARN=""
+    [ "$_BUDGET_PCT" -ge 90 ] 2>/dev/null && _BUDGET_WARN=" ⚠️"
+    R4="${R4}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
+  fi
 fi
 printf '%b\n' "$R4"
 
