@@ -1,0 +1,26 @@
+{
+  "model": {"display_name": "Claude Opus 4.5 (1M context)"},
+  "workspace": {"current_dir": "/Users/test/my-awesome-project"},
+  "context_window": {
+    "used_percentage": 62,
+    "current_usage": {
+      "input_tokens": 120000,
+      "cache_creation_input_tokens": 25000,
+      "cache_read_input_tokens": 80000
+    },
+    "total_output_tokens": 45000,
+    "context_window_size": 200000
+  },
+  "cost": {
+    "total_cost_usd": 3.75,
+    "total_duration_ms": 1800000,
+    "total_api_duration_ms": 900000,
+    "total_lines_added": 450,
+    "total_lines_removed": 120
+  },
+  "vim": {"mode": "NORMAL"},
+  "agent": {"name": "code-reviewer"},
+  "worktree": {"name": "feature-auth", "branch": "feat/auth-v2"},
+  "exceeds_200k_tokens": false,
+  "transcript_path": ""
+}

@@ -1,0 +1,26 @@
+{
+  "model": {"display_name": "Claude Sonnet 4.6"},
+  "workspace": {"current_dir": "/Users/test/project"},
+  "context_window": {
+    "used_percentage": 50,
+    "current_usage": {
+      "input_tokens": 80000,
+      "cache_creation_input_tokens": 10000,
+      "cache_read_input_tokens": 80000
+    },
+    "total_output_tokens": 25000,
+    "context_window_size": 200000
+  },
+  "cost": {
+    "total_cost_usd": 2.50,
+    "total_duration_ms": 600000,
+    "total_api_duration_ms": 350000,
+    "total_lines_added": 200,
+    "total_lines_removed": 200
+  },
+  "vim": {"mode": ""},
+  "agent": {"name": ""},
+  "worktree": {"name": "", "branch": ""},
+  "exceeds_200k_tokens": false,
+  "transcript_path": ""
+}
