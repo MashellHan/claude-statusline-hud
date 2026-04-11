@@ -388,6 +388,7 @@ if [ "$INPUT_TOK" -gt 0 ] 2>/dev/null || [ "$CACHE_READ" -gt 0 ] 2>/dev/null; th
   [ "$CACHE_READ" -gt 0 ] 2>/dev/null && TURN_DISPLAY="${TURN_DISPLAY} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
   [ "$TIER" = "wide" ] && [ "$CACHE_CREATE" -gt 0 ] 2>/dev/null && \
     TURN_DISPLAY="${TURN_DISPLAY} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
+  [ "$TOTAL_OUT" -gt 0 ] 2>/dev/null && TURN_DISPLAY="${TURN_DISPLAY} ${DIM}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}"
 fi
 
 # Cache hit rate (per-turn)
