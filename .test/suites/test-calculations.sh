@@ -25,7 +25,7 @@ run_statusline "$(make_json '{"context_window":{"used_percentage":10,"context_wi
 assert_contains "$STATUSLINE_PLAIN" "20k" "CTX_TOKENS: 200k*10% = 20k"
 
 # 200000 * 0 / 100 = 0 → token display hidden
-run_statusline "$(make_json '{"context_window":{"used_percentage":0,"context_window_size":200000}}')" "essential" 120
+run_statusline "$(make_json '{"context_window":{"used_percentage":0,"context_window_size":200000,"total_output_tokens":0,"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}')" "essential" 120
 assert_not_contains "$STATUSLINE_PLAIN" "token" "CTX_TOKENS: 0 → no token display"
 
 # ================================================================
@@ -49,7 +49,7 @@ run_statusline "$(make_json '{"context_window":{"current_usage":{"input_tokens":
 CACHE_LINES=$(printf '%s' "$STATUSLINE_PLAIN" | grep -c "cache")
 # May or may not show "cache" depending on the 0/0 guard
 # Just verify no crash
-assert_contains "$STATUSLINE_PLAIN" "Context" "zero cache inputs still shows context"
+assert_contains "$STATUSLINE_PLAIN" "context" "zero cache inputs still shows context"
 
 # ================================================================
 # Throughput: TPM = TOTAL_OUT * 60000 / DURATION_MS

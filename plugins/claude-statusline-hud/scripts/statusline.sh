@@ -64,6 +64,7 @@ eval "$(printf '%s' "$input" | jq -r '
   @sh "CACHE_CREATE=\(.context_window.current_usage.cache_creation_input_tokens // 0)",
   @sh "CACHE_READ=\(.context_window.current_usage.cache_read_input_tokens // 0)",
   @sh "TOTAL_OUT=\(.context_window.total_output_tokens // 0)",
+  @sh "TOTAL_INPUT_CUM=\(.context_window.total_input_tokens // 0)",
   @sh "TRANSCRIPT=\(.transcript_path // "")",
   @sh "CTX_SIZE=\(.context_window.context_window_size // 200000)",
   @sh "RL_5H_PCT=\(.rate_limits.five_hour.used_percentage // 0 | floor)",
@@ -73,7 +74,7 @@ eval "$(printf '%s' "$input" | jq -r '
   # Fallback: if jq fails, set safe defaults
   MODEL="Unknown" DIR="" PCT=0 COST_RAW=0 DURATION_MS=0 API_MS=0
   LINES_ADD=0 LINES_DEL=0 VIM_MODE="" AGENT_NAME="" WT_NAME="" WT_BRANCH=""
-  EXCEEDS_200K=false INPUT_TOK=0 CACHE_CREATE=0 CACHE_READ=0 TOTAL_OUT=0
+  EXCEEDS_200K=false INPUT_TOK=0 CACHE_CREATE=0 CACHE_READ=0 TOTAL_OUT=0 TOTAL_INPUT_CUM=0
   TRANSCRIPT="" CTX_SIZE=200000 RL_5H_PCT=0 RL_5H_RESET=0 SESSION_ID=""
 }
 
@@ -463,12 +464,18 @@ CTX_LABEL="${VAL}${PCT}%${RST}"
 
 # ---- Build token display for context row ----
 # CTX_TOKENS = context window occupancy (derived from API percentage — most accurate)
-# SESSION_TOKENS = cumulative billing tokens (input snapshot + cumulative output)
+# SESSION_TOKENS = cumulative billing tokens (total_input_tokens + total_output_tokens)
 CTX_TOKENS=$((CTX_SIZE * PCT / 100))
-SESSION_TOKENS=$((TOTAL_INPUT + TOTAL_OUT))
+SESSION_TOKENS=$((TOTAL_INPUT_CUM + TOTAL_OUT))
+# Use whichever is larger: cumulative billing tokens or context occupancy estimate
+_TOK_HEADLINE=$SESSION_TOKENS
+[ "$CTX_TOKENS" -gt "$_TOK_HEADLINE" ] 2>/dev/null && _TOK_HEADLINE=$CTX_TOKENS
 TOK_DISPLAY=""
-if [ "$CTX_TOKENS" -gt 0 ]; then
-  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $CTX_TOKENS)${RST} (${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}total-out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST})"
+if [ "$_TOK_HEADLINE" -gt 0 ]; then
+  TOK_DISPLAY="${CYAN}token${RST} ${VAL}$(fmt_tok $_TOK_HEADLINE)${RST}"
+  if [ "$TIER" = "wide" ]; then
+    TOK_DISPLAY="${TOK_DISPLAY} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST} ${CYAN}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}${DIM})${RST}"
+  fi
 fi
 
 # ---- Cache hit rate (for Row 3) ----
