@@ -506,7 +506,7 @@ if [ "$RL_5H_PCT" -gt 0 ] 2>/dev/null; then
   fi
 fi
 
-R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
+R3="${CYAN}context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
 [ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
 [ -n "$RL_DISPLAY" ] && R3="${R3}${SEP}${RL_DISPLAY}"
 if [ "$TIER" != "compact" ]; then
@@ -602,11 +602,11 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-R4="${DIM}sess${RST}"
-# Show truncated session ID if available
+R4="${DIM}session${RST}"
+# Show truncated session ID in parens if available
 if [ -n "$SESSION_ID" ]; then
   _SID_SHORT="${SESSION_ID:0:8}"
-  R4="${R4} ${DIM}${_SID_SHORT}${RST}"
+  R4="${R4} ${DIM}(${_SID_SHORT})${RST}"
 fi
 R4="${R4} ${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
@@ -614,7 +614,7 @@ R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
 # Session message counts: user/llm + compact count
 if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/null; then
-  R4="${R4}${SEP}${CYAN}user${RST} ${VAL}${SESS_USER_MSGS}${RST} ${CYAN}llm${RST} ${VAL}${SESS_LLM_MSGS}${RST}"
+  R4="${R4}${SEP}${CYAN}msg-user${RST} ${VAL}${SESS_USER_MSGS}${RST} ${CYAN}msg-llm${RST} ${VAL}${SESS_LLM_MSGS}${RST}"
   [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && \
     R4="${R4} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
 fi
