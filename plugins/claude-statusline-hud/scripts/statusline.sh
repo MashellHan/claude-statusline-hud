@@ -602,11 +602,11 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-R4="${DIM}session${RST}"
+R4="${CYAN}session${RST}"
 # Show truncated session ID in parens if available
 if [ -n "$SESSION_ID" ]; then
   _SID_SHORT="${SESSION_ID:0:8}"
-  R4="${R4} ${DIM}(${_SID_SHORT})${RST}"
+  R4="${CYAN}session${RST}${DIM}(${RST}${VAL}${_SID_SHORT}${RST}${DIM})${RST}"
 fi
 R4="${R4} ${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
