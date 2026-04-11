@@ -410,7 +410,7 @@ if [ -n "$ACTIVITY_LINE" ]; then
 fi
 
 # =============================================================
-# ROW 3: Context bar │ Usage bars                   [ESSENTIAL+]
+# ROW 3: Context bar │ Tokens │ Cache │ Speed        [ESSENTIAL+]
 # =============================================================
 
 # --- Autocompact buffer estimation ---
@@ -540,27 +540,12 @@ if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
   LINES="${GREEN}+${LINES_ADD}${RST} ${RED}-${LINES_DEL}${RST} ${NI}"
 fi
 
-CACHE_HIT=""
-if [ "$TOTAL_INPUT" -gt 0 ]; then
-  CP=$((CACHE_READ * 100 / TOTAL_INPUT))
-  if [ "$CP" -ge 80 ]; then CC="$GREEN"; elif [ "$CP" -ge 40 ]; then CC="$YELLOW"; else CC="$RED"; fi
-  CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
-fi
-
-THROUGHPUT=""
-if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
-  TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
-fi
-
 R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
   R4="${R4} ${DIM}(day${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}${DIM})${RST}"
 fi
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
-[ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
-[ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
 fi
