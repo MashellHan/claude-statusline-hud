@@ -465,21 +465,13 @@ DAY_COST="" DAY_TOK=""
 if [ -n "$TRANSCRIPT" ] && [ "$TOTAL_TOKENS" -gt 0 ]; then
   mkdir -p "$DAILY_DIR" 2>/dev/null
   TODAY=$(date +%Y-%m-%d)
-  # Append or update this session's stats (dedup by session ID)
   _ENTRY="{\"date\":\"${TODAY}\",\"sid\":\"${_SID}\",\"tokens\":${TOTAL_TOKENS},\"cost\":${COST_RAW}}"
-  # Check if this session already has an entry for today — update if changed
-  if [ -f "$DAILY_LOG" ]; then
-    _LAST_SID=$(tail -1 "$DAILY_LOG" 2>/dev/null | jq -r '.sid // ""' 2>/dev/null)
-    _LAST_TOK=$(tail -1 "$DAILY_LOG" 2>/dev/null | jq -r '.tokens // 0' 2>/dev/null)
-    if [ "$_LAST_SID" = "$_SID" ]; then
-      # Same session — only update if tokens changed
-      if [ "$_LAST_TOK" != "$TOTAL_TOKENS" ]; then
-        # Remove last line and re-append
-        sed -i.bak '$ d' "$DAILY_LOG" 2>/dev/null && rm -f "${DAILY_LOG}.bak"
-        printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
-        rm -f "$DAILY_CACHE"
-      fi
-    else
+
+  # Dedup: remove any existing entry for this session ID, then append
+  if [ -f "$DAILY_LOG" ] && grep -q "\"sid\":\"${_SID}\"" "$DAILY_LOG" 2>/dev/null; then
+    _OLD_TOK=$(grep "\"sid\":\"${_SID}\"" "$DAILY_LOG" | tail -1 | jq -r '.tokens // 0' 2>/dev/null)
+    if [ "$_OLD_TOK" != "$TOTAL_TOKENS" ]; then
+      sed -i.bak "/\"sid\":\"${_SID}\"/d" "$DAILY_LOG" && rm -f "${DAILY_LOG}.bak"
       printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
       rm -f "$DAILY_CACHE"
     fi
@@ -488,15 +480,22 @@ if [ -n "$TRANSCRIPT" ] && [ "$TOTAL_TOKENS" -gt 0 ]; then
     rm -f "$DAILY_CACHE"
   fi
 
+  # Prune entries older than 30 days (keeps file small)
+  if [ -f "$DAILY_LOG" ] && [ "$(wc -l < "$DAILY_LOG")" -gt 500 ]; then
+    _30D_AGO=$(date -v-30d +%Y-%m-%d 2>/dev/null || date -d '30 days ago' +%Y-%m-%d 2>/dev/null)
+    if [ -n "$_30D_AGO" ]; then
+      jq -c --arg d "$_30D_AGO" 'select(.date >= $d)' "$DAILY_LOG" > "${DAILY_LOG}.tmp" && mv "${DAILY_LOG}.tmp" "$DAILY_LOG"
+    fi
+  fi
+
   # Aggregate daily stats (cached 30s)
   if [ -f "$DAILY_LOG" ]; then
     if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
       . "$DAILY_CACHE"
     else
-      _AGG=$(jq -rs --arg d "$TODAY" '
-        [.[] | select(.date == $d)] |
+      _AGG=$(grep "\"$TODAY\"" "$DAILY_LOG" 2>/dev/null | jq -rs '
         {cost: (map(.cost) | add // 0), tokens: (map(.tokens) | add // 0), sessions: length}
-      ' "$DAILY_LOG" 2>/dev/null)
+      ' 2>/dev/null)
       _DAY_COST=$(printf '%s' "$_AGG" | jq -r '.cost // 0' 2>/dev/null)
       _DAY_TOK=$(printf '%s' "$_AGG" | jq -r '.tokens // 0' 2>/dev/null)
       printf "DAY_COST='%s'\nDAY_TOK='%s'\n" "$_DAY_COST" "$_DAY_TOK" > "$DAILY_CACHE"
@@ -542,7 +541,7 @@ R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$CACHE_HIT" ] && R4="${R4}${SEP}${CACHE_HIT}"
 [ -n "$THROUGHPUT" ] && R4="${R4}${SEP}${THROUGHPUT}"
-if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ]; then
+if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
 fi
 printf '%b\n' "$R4"
