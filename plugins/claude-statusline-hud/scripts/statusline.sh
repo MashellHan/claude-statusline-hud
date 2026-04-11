@@ -460,8 +460,10 @@ fi
 
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
 [ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
-[ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
-[ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
+if [ "$TIER" != "compact" ]; then
+  [ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
+  [ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
+fi
 printf '%b\n' "$R3"
 
 # --- Token breakdown row (conditional): shown at 85%+ context ---
@@ -540,18 +542,12 @@ if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
   LINES="${GREEN}+${LINES_ADD}${RST} ${RED}-${LINES_DEL}${RST} ${NI}"
 fi
 
-# ---- Burn rate: token consumption speed + hourly cost projection ----
+# ---- Burn rate: hourly cost projection ----
 BURN_RATE=""
 if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
-  # Tokens per minute
-  BURN_TPM=$((SESSION_TOKENS * 60000 / DURATION_MS))
-  # Hourly cost projection: (cost_so_far / duration_hours) * 1
-  # Use awk for floating-point: cost_raw / (duration_ms / 3600000)
-  BURN_COST_HR=$(awk "BEGIN{d=${DURATION_MS}/3600000; if(d>0) printf \"%.2f\", ${COST_RAW}/d; else print 0}")
-  BURN_RATE="${YELLOW}🔥${RST}${VAL}$(fmt_tok "$BURN_TPM")/min${RST}"
-  if [ "$TIER" != "compact" ]; then
-    BURN_RATE="${BURN_RATE} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
-  fi
+  # Hourly cost projection: cost_so_far / duration_hours
+  BURN_COST_HR=$(awk -v d="$DURATION_MS" -v c="$COST_RAW" 'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
+  BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
 R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
