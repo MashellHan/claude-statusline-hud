@@ -317,6 +317,20 @@ if [ -n "$WT_NAME" ]; then
   WT_TRUNC="${WT_NAME:0:15}"
   BADGES="${BADGES}${SEP}${DIM}🌿 ${WT_TRUNC}${WT_BRANCH:+→${WT_BRANCH}}${RST}"
 fi
+# MCP server count badge
+_MCP_FILE="$HOME/.claude/mcp-configs/mcp-servers.json"
+if [ -f "$_MCP_FILE" ]; then
+  _MCP_COUNT=$(jq '.mcpServers | length' "$_MCP_FILE" 2>/dev/null)
+  [ "${_MCP_COUNT:-0}" -gt 0 ] 2>/dev/null && \
+    BADGES="${BADGES}${SEP}${DIM}mcp${RST} ${VAL}${_MCP_COUNT}${RST}"
+fi
+# Skills count badge
+_SKILLS_DIR="$HOME/.claude/skills"
+if [ -d "$_SKILLS_DIR" ]; then
+  _SKILLS_COUNT=$(ls "$_SKILLS_DIR" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${_SKILLS_COUNT:-0}" -gt 0 ] 2>/dev/null && \
+    BADGES="${BADGES}${SEP}${DIM}skills${RST} ${VAL}${_SKILLS_COUNT}${RST}"
+fi
 
 # --- Update notice ---
 UPDATE_BADGE=""
