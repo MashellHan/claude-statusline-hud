@@ -477,52 +477,32 @@ fi
 # ROW 4: Stats — Cost │ Duration │ Lines │ Day-tok        [FULL+]
 # =============================================================
 
-# --- Daily token/cost tracking ---
-DAILY_DIR="$HOME/.claude/statusline-data"
-DAILY_LOG="$DAILY_DIR/daily.jsonl"
+# --- Daily token tracking (transcript-based — scans ALL sessions today) ---
 DAILY_CACHE="/tmp/.claude_sl_daily_$(id -u)"
-DAY_COST="" DAY_TOK=""
+DAY_COST="" DAY_TOK="" DAY_SESSIONS=""
 
-if [ -n "$TRANSCRIPT" ] && [ "$SESSION_TOKENS" -gt 0 ]; then
-  mkdir -p "$DAILY_DIR" 2>/dev/null
+if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
+  . "$DAILY_CACHE"
+else
   TODAY=$(date +%Y-%m-%d)
-  _ENTRY="{\"date\":\"${TODAY}\",\"sid\":\"${_SID}\",\"tokens\":${SESSION_TOKENS},\"cost\":${COST_RAW}}"
-
-  # Dedup: remove any existing entry for this session ID, then append
-  _EXISTING=$(grep "\"sid\":\"${_SID}\"" "$DAILY_LOG" 2>/dev/null | tail -1)
-  if [ -f "$DAILY_LOG" ] && [ -n "$_EXISTING" ]; then
-    _OLD_TOK=$(printf '%s' "$_EXISTING" | jq -r '.tokens // 0' 2>/dev/null)
-    if [ "$_OLD_TOK" != "$SESSION_TOKENS" ]; then
-      sed -i.bak "/\"sid\":\"${_SID}\"/d" "$DAILY_LOG" && rm -f "${DAILY_LOG}.bak"
-      printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
-      rm -f "$DAILY_CACHE"
-    fi
-  else
-    printf '%s\n' "$_ENTRY" >> "$DAILY_LOG"
-    rm -f "$DAILY_CACHE"
-  fi
-
-  # Prune entries older than 30 days (keeps file small)
-  if [ -f "$DAILY_LOG" ] && [ "$(wc -l < "$DAILY_LOG")" -gt 500 ]; then
-    _30D_AGO=$(date -v-30d +%Y-%m-%d 2>/dev/null || date -d '30 days ago' +%Y-%m-%d 2>/dev/null)
-    if [ -n "$_30D_AGO" ]; then
-      jq -c --arg d "$_30D_AGO" 'select(.date >= $d)' "$DAILY_LOG" > "${DAILY_LOG}.tmp" && mv "${DAILY_LOG}.tmp" "$DAILY_LOG"
-    fi
-  fi
-
-  # Aggregate daily stats (cached 30s)
-  if [ -f "$DAILY_LOG" ]; then
-    if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
-      . "$DAILY_CACHE"
-    else
-      _AGG=$(grep "\"$TODAY\"" "$DAILY_LOG" 2>/dev/null | jq -rs '
-        {cost: (map(.cost) | add // 0), tokens: (map(.tokens) | add // 0), sessions: length}
-      ' 2>/dev/null)
-      _DAY_COST=$(printf '%s' "$_AGG" | jq -r '.cost // 0' 2>/dev/null)
-      _DAY_TOK=$(printf '%s' "$_AGG" | jq -r '.tokens // 0' 2>/dev/null)
-      printf "DAY_COST='%s'\nDAY_TOK='%s'\n" "$_DAY_COST" "$_DAY_TOK" > "$DAILY_CACHE"
-      DAY_COST="$_DAY_COST" DAY_TOK="$_DAY_TOK"
-    fi
+  _PROJECTS_DIR="$HOME/.claude/projects"
+  if [ -d "$_PROJECTS_DIR" ]; then
+    # Two-stage pipeline: streaming extract → aggregate
+    # Stage 1: jq -c extracts tiny {i,o,cr} objects (streaming, constant memory)
+    # Stage 2: jq -s aggregates the small objects (a few KB, not 33MB)
+    _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
+      -newermt "$TODAY 00:00" 2>/dev/null | \
+      xargs grep -h "input_tokens" 2>/dev/null | \
+      jq -c '.message.usage // empty |
+        {i: (.input_tokens // 0), o: (.output_tokens // 0),
+         cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
+      jq -s '{
+        tokens: (map(.i + .o + .cr) | add // 0),
+        messages: length
+      }' 2>/dev/null)
+    DAY_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.tokens // 0' 2>/dev/null)
+    DAY_SESSIONS=$(printf '%s' "$_DAY_STATS" | jq -r '.messages // 0' 2>/dev/null)
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST=''\n" "$DAY_TOK" "$DAY_SESSIONS" > "$DAILY_CACHE"
   fi
 fi
 
