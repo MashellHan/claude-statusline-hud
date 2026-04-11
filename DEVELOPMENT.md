@@ -121,11 +121,10 @@ Without this step, the user continues running the old version.
 
 ## Current Status
 
-- **Reviews completed:** 16 (001-016)
-- **Overall score:** 8.2/10 (DAY_COST fix confirmed, 3 new features specced)
-- **Features done:** 8 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits*, native session_id)
-- **BLOCKING:** None
-- **Next priority:** Session ID badge + Skills count + MCP health (review-016) → autocompact (P1.4)
-- **Note:** rate_limits field not yet in Claude Code JSON (code ready, waiting on API)
+- **Reviews completed:** 17 (001-017)
+- **Overall score:** 7.0/10 (SESSION_TOKENS 172x wrong — uses per-turn instead of cumulative)
+- **Features done:** 8 of 15
+- **BLOCKING:** SESSION_TOKENS fix (review-017 CRITICAL — uses current_usage instead of total_input_tokens)
+- **Next priority:** Fix SESSION_TOKENS → session ID/skills/MCP badges (review-016) → autocompact (P1.4)
 - **Roadmap:** See `.review/feature-roadmap-v2.md` for comprehensive priority queue
 - **Key discovery:** Official statusline JSON has `rate_limits` fields — first-to-market opportunity
