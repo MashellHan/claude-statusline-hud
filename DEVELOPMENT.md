@@ -121,10 +121,10 @@ Without this step, the user continues running the old version.
 
 ## Current Status
 
-- **Reviews completed:** 14 (001-014)
-- **Overall score:** 8.2/10 (P1.1+P1.2 done, P1.3 partial — DAY_COST empty)
+- **Reviews completed:** 15 (001-015)
+- **Overall score:** 7.8/10 (DAY_COST $5,053 misleading for Max plan — needs billing detection)
 - **Features done:** 8 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits, native session_id)
-- **BLOCKING:** DAY_COST computation for budget alerts (P1.3)
-- **Next priority:** Fix DAY_COST → autocompact countdown (P1.4)
+- **BLOCKING:** DAY_COST billing model detection (review-015 CRITICAL)
+- **Next priority:** Fix DAY_COST billing detection → autocompact countdown (P1.4)
 - **Roadmap:** See `.review/feature-roadmap-v2.md` for comprehensive priority queue
 - **Key discovery:** Official statusline JSON has `rate_limits` fields — first-to-market opportunity
