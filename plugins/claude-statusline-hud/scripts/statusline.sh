@@ -531,6 +531,9 @@ else
       }' 2>/dev/null)
     DAY_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.tokens // 0' 2>/dev/null)
     DAY_SESSIONS=$(printf '%s' "$_DAY_STATS" | jq -r '.messages // 0' 2>/dev/null)
+    DAY_INPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.input // 0' 2>/dev/null)
+    DAY_OUTPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.output // 0' 2>/dev/null)
+    DAY_CACHE_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.cache_read // 0' 2>/dev/null)
     # Only estimate daily cost if user appears to be on API billing
     # (COST_RAW > 0 indicates per-token billing, not Max subscription)
     _SHOW_COST=false
@@ -547,7 +550,8 @@ else
     else
       DAY_COST=""
     fi
-    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\n" "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" > "$DAILY_CACHE"
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_TOK='%s'\n" \
+      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_TOK" > "$DAILY_CACHE"
   fi
 fi
 
@@ -576,28 +580,38 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
 fi
 
 R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
-if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
-  R4="${R4} ${DIM}(day${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}${DIM})${RST}"
-fi
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
-if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
-  R4="${R4}${SEP}${CYAN}day-tok${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
-fi
-# --- Daily cost budget alert ---
-if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
-  _DAY_COST_RAW="${DAY_COST:-0}"
-  if [ -n "$_DAY_COST_RAW" ] && [ "$_DAY_COST_RAW" != "0" ]; then
-    _BUDGET_PCT=$(awk -v c="$_DAY_COST_RAW" -v b="$CLAUDE_SL_DAILY_BUDGET" \
-      'BEGIN{if(b>0) printf "%d", (c/b)*100; else print 0}')
-    _BUDGET_CLR=$(bar_color "$_BUDGET_PCT")
-    _BUDGET_WARN=""
-    [ "$_BUDGET_PCT" -ge 90 ] 2>/dev/null && _BUDGET_WARN=" ⚠️"
-    R4="${R4}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}≈$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
-  fi
-fi
 printf '%b\n' "$R4"
+
+# =============================================================
+# ROW 5: Daily Token Summary                            [DAILY]
+# =============================================================
+if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
+  R5D="${CYAN}day${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+  R5D="${R5D} (${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  R5D="${R5D} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
+  R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST})"
+  [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
+    R5D="${R5D}${SEP}${CYAN}msgs${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+  if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
+    R5D="${R5D}${SEP}${CYAN}≈cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
+  fi
+  # Budget alert on daily row
+  if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
+    _DAY_COST_RAW="${DAY_COST:-0}"
+    if [ -n "$_DAY_COST_RAW" ] && [ "$_DAY_COST_RAW" != "0" ]; then
+      _BUDGET_PCT=$(awk -v c="$_DAY_COST_RAW" -v b="$CLAUDE_SL_DAILY_BUDGET" \
+        'BEGIN{if(b>0) printf "%d", (c/b)*100; else print 0}')
+      _BUDGET_CLR=$(bar_color "$_BUDGET_PCT")
+      _BUDGET_WARN=""
+      [ "$_BUDGET_PCT" -ge 90 ] 2>/dev/null && _BUDGET_WARN=" ⚠️"
+      R5D="${R5D}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}≈$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
+    fi
+  fi
+  printf '%b\n' "$R5D"
+fi
 
 [ "$PRESET" = "full" ] && exit 0
 
