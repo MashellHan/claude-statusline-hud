@@ -121,10 +121,10 @@ Without this step, the user continues running the old version.
 
 ## Current Status
 
-- **Reviews completed:** 13 (001-013)
-- **Overall score:** 8.3/10 (rate limit display + daily token fix both deployed)
-- **Features done:** 7 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits)
-- **BLOCKING:** None
-- **Next priority:** Native session_id (P1.2) → budget alerts (P1.3) → autocompact countdown (P1.4)
+- **Reviews completed:** 14 (001-014)
+- **Overall score:** 8.2/10 (P1.1+P1.2 done, P1.3 partial — DAY_COST empty)
+- **Features done:** 8 of 15 (daily tracking, git state, burn rate, token fix, layout, transcript scanning, rate limits, native session_id)
+- **BLOCKING:** DAY_COST computation for budget alerts (P1.3)
+- **Next priority:** Fix DAY_COST → autocompact countdown (P1.4)
 - **Roadmap:** See `.review/feature-roadmap-v2.md` for comprehensive priority queue
 - **Key discovery:** Official statusline JSON has `rate_limits` fields — first-to-market opportunity
