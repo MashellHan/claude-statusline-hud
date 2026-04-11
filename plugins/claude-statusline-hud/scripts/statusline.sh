@@ -414,6 +414,29 @@ if [ -n "$ACTIVITY_LINE" ]; then
   printf '%b\n' "${DIM}›${RST} ${ACTIVITY_LINE}"
 fi
 
+# --- Session message & compact counts (from transcript, cached 10s) ---
+SESS_USER_MSGS=0 SESS_LLM_MSGS=0 SESS_COMPACTS=0
+SESS_MSG_CACHE="/tmp/.claude_sl_sessmsg_${_SID}"
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+  if [ "$(file_age "$SESS_MSG_CACHE")" -lt 10 ] && [ -f "$SESS_MSG_CACHE" ]; then
+    . "$SESS_MSG_CACHE"
+  else
+    # Count user messages, LLM (assistant) messages, and compaction boundaries
+    _SESS_COUNTS=$(jq -r '.type + ":" + (.subtype // "")' "$TRANSCRIPT" 2>/dev/null | \
+      awk -F: '
+        $1=="user"      {u++}
+        $1=="assistant"  {a++}
+        $1=="system" && $2=="compact_boundary" {c++}
+        END {printf "%d %d %d", u+0, a+0, c+0}
+      ')
+    SESS_USER_MSGS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $1}')
+    SESS_LLM_MSGS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $2}')
+    SESS_COMPACTS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $3}')
+    printf "SESS_USER_MSGS='%s'\nSESS_LLM_MSGS='%s'\nSESS_COMPACTS='%s'\n" \
+      "$SESS_USER_MSGS" "$SESS_LLM_MSGS" "$SESS_COMPACTS" > "$SESS_MSG_CACHE"
+  fi
+fi
+
 # =============================================================
 # ROW 3: Context bar │ Tokens │ Cache │ Speed        [ESSENTIAL+]
 # =============================================================
@@ -579,10 +602,22 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-R4="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+R4="${DIM}sess${RST}"
+# Show truncated session ID if available
+if [ -n "$SESSION_ID" ]; then
+  _SID_SHORT="${SESSION_ID:0:8}"
+  R4="${R4} ${DIM}${_SID_SHORT}${RST}"
+fi
+R4="${R4} ${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 R4="${R4}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 [ -n "$LINES" ] && R4="${R4}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$BURN_RATE" ] && R4="${R4}${SEP}${BURN_RATE}"
+# Session message counts: user/llm + compact count
+if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/null; then
+  R4="${R4}${SEP}${CYAN}user${RST} ${VAL}${SESS_USER_MSGS}${RST} ${CYAN}llm${RST} ${VAL}${SESS_LLM_MSGS}${RST}"
+  [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && \
+    R4="${R4} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
+fi
 printf '%b\n' "$R4"
 
 # =============================================================
@@ -594,7 +629,7 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R5D="${R5D} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
   R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST})"
   [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
-    R5D="${R5D}${SEP}${CYAN}msgs${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+    R5D="${R5D}${SEP}${CYAN}llm-msgs${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
     R5D="${R5D}${SEP}${CYAN}≈cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
