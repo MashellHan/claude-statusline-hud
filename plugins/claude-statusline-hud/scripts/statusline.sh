@@ -65,13 +65,15 @@ eval "$(printf '%s' "$input" | jq -r '
   @sh "CACHE_READ=\(.context_window.current_usage.cache_read_input_tokens // 0)",
   @sh "TOTAL_OUT=\(.context_window.total_output_tokens // 0)",
   @sh "TRANSCRIPT=\(.transcript_path // "")",
-  @sh "CTX_SIZE=\(.context_window.context_window_size // 200000)"
+  @sh "CTX_SIZE=\(.context_window.context_window_size // 200000)",
+  @sh "RL_5H_PCT=\(.rate_limits.five_hour.used_percentage // 0 | floor)",
+  @sh "RL_5H_RESET=\(.rate_limits.five_hour.resets_at // 0 | floor)"
 ' 2>/dev/null)" || {
   # Fallback: if jq fails, set safe defaults
   MODEL="Unknown" DIR="" PCT=0 COST_RAW=0 DURATION_MS=0 API_MS=0
   LINES_ADD=0 LINES_DEL=0 VIM_MODE="" AGENT_NAME="" WT_NAME="" WT_BRANCH=""
   EXCEEDS_200K=false INPUT_TOK=0 CACHE_CREATE=0 CACHE_READ=0 TOTAL_OUT=0
-  TRANSCRIPT="" CTX_SIZE=200000
+  TRANSCRIPT="" CTX_SIZE=200000 RL_5H_PCT=0 RL_5H_RESET=0
 }
 
 # --- Smart directory name ---
@@ -458,8 +460,29 @@ if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
+# ---- Rate limit indicator (for Row 3) ----
+RL_DISPLAY=""
+if [ "$RL_5H_PCT" -gt 0 ] 2>/dev/null; then
+  RL_CLR=$(bar_color "$RL_5H_PCT")
+  RL_DISPLAY="${CYAN}rl${RST} ${RL_CLR}${VAL}${RL_5H_PCT}%${RST}"
+  # Show reset countdown if available
+  if [ "$RL_5H_RESET" -gt 0 ] 2>/dev/null; then
+    _RL_LEFT=$(( RL_5H_RESET - NOW ))
+    if [ "$_RL_LEFT" -gt 0 ]; then
+      _RL_H=$(( _RL_LEFT / 3600 ))
+      _RL_M=$(( (_RL_LEFT % 3600) / 60 ))
+      if [ "$_RL_H" -gt 0 ]; then
+        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_H}h${_RL_M}m${RST}"
+      else
+        RL_DISPLAY="${RL_DISPLAY} ${DIM}reset${RST} ${VAL}${_RL_M}m${RST}"
+      fi
+    fi
+  fi
+fi
+
 R3="${CYAN}Context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
 [ -n "$TOK_DISPLAY" ] && R3="${R3}${SEP}${TOK_DISPLAY}"
+[ -n "$RL_DISPLAY" ] && R3="${R3}${SEP}${RL_DISPLAY}"
 if [ "$TIER" != "compact" ]; then
   [ -n "$CACHE_HIT" ] && R3="${R3}${SEP}${CACHE_HIT}"
   [ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
