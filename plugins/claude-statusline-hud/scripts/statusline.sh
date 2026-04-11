@@ -531,9 +531,22 @@ else
       }' 2>/dev/null)
     DAY_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.tokens // 0' 2>/dev/null)
     DAY_SESSIONS=$(printf '%s' "$_DAY_STATS" | jq -r '.messages // 0' 2>/dev/null)
-    # Approximate cost using Sonnet 4.6 pricing: $3/1M input, $15/1M output, $0.30/1M cache read
-    DAY_COST=$(printf '%s' "$_DAY_STATS" | jq -r '[.input, .output, .cache_read] | @tsv' 2>/dev/null | \
-      awk -F'\t' '{printf "%.4f", ($1*3 + $2*15 + $3*0.3)/1000000}')
+    # Only estimate daily cost if user appears to be on API billing
+    # (COST_RAW > 0 indicates per-token billing, not Max subscription)
+    _SHOW_COST=false
+    if [ "${CLAUDE_SL_SHOW_API_EQUIV_COST:-0}" = "1" ]; then
+      _SHOW_COST=true
+    elif [ -n "$COST_RAW" ] && [ "$COST_RAW" != "0" ]; then
+      _IS_API=$(awk -v c="$COST_RAW" 'BEGIN{print (c+0 > 0) ? "yes" : "no"}')
+      [ "$_IS_API" = "yes" ] && _SHOW_COST=true
+    fi
+    if [ "$_SHOW_COST" = true ]; then
+      # Approximate cost using Sonnet pricing: $3/$15/$0.30 per 1M tokens
+      DAY_COST=$(printf '%s' "$_DAY_STATS" | jq -r '[.input, .output, .cache_read] | @tsv' 2>/dev/null | \
+        awk -F'\t' '{printf "%.4f", ($1*3 + $2*15 + $3*0.3)/1000000}')
+    else
+      DAY_COST=""
+    fi
     printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\n" "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" > "$DAILY_CACHE"
   fi
 fi
@@ -581,7 +594,7 @@ if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; the
     _BUDGET_CLR=$(bar_color "$_BUDGET_PCT")
     _BUDGET_WARN=""
     [ "$_BUDGET_PCT" -ge 90 ] 2>/dev/null && _BUDGET_WARN=" ⚠️"
-    R4="${R4}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
+    R4="${R4}${SEP}${CYAN}budget${RST} ${_BUDGET_CLR}${VAL}≈$(fmt_cost "$_DAY_COST_RAW")${RST}${DIM}/${RST}${VAL}\$${CLAUDE_SL_DAILY_BUDGET}${RST}${_BUDGET_WARN}"
   fi
 fi
 printf '%b\n' "$R4"
