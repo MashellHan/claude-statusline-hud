@@ -624,7 +624,7 @@ printf '%b\n' "$R4"
 # ROW 5: Daily Token Summary                            [DAILY]
 # =============================================================
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
-  R5D="${CYAN}day${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+  R5D="${CYAN}day-total${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
   R5D="${R5D} (${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
   R5D="${R5D} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
   R5D="${R5D} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST})"
