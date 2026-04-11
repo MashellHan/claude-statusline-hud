@@ -39,12 +39,24 @@ This project follows a **3-role agent collaboration model**:
 **Responsibilities:**
 - Read review documents for bug reports, feature specs, and action items
 - Implement features and fixes in `statusline.sh`, `setup.sh`, etc.
-- Commit and push changes with conventional commit messages
+- **MUST auto-commit and push after EVERY change** (see Auto-Commit Rule below)
 - Follow the priority queue in the latest review document
 - Respond to CRITICAL items before starting new features
+- After committing, sync to marketplace install path if applicable
 
 **Input:** `.review/review-NNN.md` action items  
 **Output:** Code commits on `main` branch
+
+**Auto-Commit Rule (MANDATORY):**
+> Every code change MUST be committed and pushed immediately after implementation.
+> Never leave changes in the working tree uncommitted. The reviewer checks
+> `git log` and `git diff` — uncommitted code is invisible to the review process
+> and will NOT be deployed.
+>
+> ```bash
+> # After every change:
+> git add -A && git commit -m "<type>: <description>" && git push
+> ```
 
 ### Tester Agent
 
@@ -92,9 +104,25 @@ This project follows a **3-role agent collaboration model**:
 - **Dev → Lead:** Via git commits (lead reviews diffs)
 - **Tester → Lead:** Via test reports (lead incorporates into reviews)
 
+## Deployment Protocol
+
+After committing code changes, Dev Agent MUST sync to the marketplace install:
+
+```bash
+# Sync repo → marketplace (what actually runs in Claude Code)
+cp plugins/claude-statusline-hud/scripts/statusline.sh \
+   ~/.claude/plugins/marketplaces/claude-statusline-hud/plugins/claude-statusline-hud/scripts/statusline.sh
+
+# Clear caches to force fresh data
+rm -f /tmp/.claude_sl_daily_* /tmp/.claude_sl_*
+```
+
+Without this step, the user continues running the old version.
+
 ## Current Status
 
-- **Reviews completed:** 8 (001-008)
-- **Overall score:** 8.5/10 (trending up from 7.0)
+- **Reviews completed:** 10 (001-010)
+- **Overall score:** 6.0/10 (dropped from 8.5 due to daily token data accuracy crisis)
 - **Features done:** 5 of 15 (daily tracking, git state, burn rate, token fix, layout)
-- **Next priority:** Autocompact countdown (P1), cost budget alerts (P1)
+- **BLOCKING:** Daily token OOM bug fix + deploy (review-010)
+- **Next priority:** Fix daily token → deploy → autocompact countdown (P1)

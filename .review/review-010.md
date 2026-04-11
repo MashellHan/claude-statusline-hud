@@ -112,14 +112,25 @@ Stage 1 (`jq -c`) runs in constant memory — it processes one line at a time. O
 ## Deployment Checklist for Dev Agent
 
 1. **Fix the OOM bug** — Replace single `jq -s` with two-stage pipeline (see above)
-2. **Commit the changes** — The transcript scanning code has never been committed
-3. **Copy to marketplace install** — After committing, sync to:
-   ```
+2. **Commit AND push immediately** — The transcript scanning code has never been committed. **Auto-commit rule: every change must be committed and pushed right after implementation. See DEVELOPMENT.md.**
+3. **Deploy to marketplace install** — After committing, sync to the path that actually runs:
+   ```bash
    cp plugins/claude-statusline-hud/scripts/statusline.sh \
       ~/.claude/plugins/marketplaces/claude-statusline-hud/plugins/claude-statusline-hud/scripts/statusline.sh
    ```
 4. **Clear stale cache** — `rm -f /tmp/.claude_sl_daily_*` to force fresh scan
 5. **Verify output** — The `day-tok` display should show ~1.7B (1736M) not 2M
+
+**REMINDER: After EVERY code change, run:**
+```bash
+git add -A && git commit -m "<type>: <description>" && git push
+```
+**Then deploy:**
+```bash
+cp plugins/claude-statusline-hud/scripts/statusline.sh \
+   ~/.claude/plugins/marketplaces/claude-statusline-hud/plugins/claude-statusline-hud/scripts/statusline.sh
+rm -f /tmp/.claude_sl_daily_* /tmp/.claude_sl_*
+```
 
 ---
 
