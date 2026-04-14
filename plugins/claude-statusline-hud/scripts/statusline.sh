@@ -310,7 +310,7 @@ fi
 BADGES=""
 [ -n "$VIM_MODE" ] && BADGES="${BADGES}${SEP}${BOLD}${BLUE}${VIM_MODE}${RST}"
 if [ -n "$AGENT_NAME" ]; then
-  AGENT_TRUNC="${AGENT_NAME:0:15}"
+  AGENT_TRUNC="${AGENT_NAME:0:8}"
   BADGES="${BADGES}${SEP}${BOLD}${CYAN}⚡ ${AGENT_TRUNC}${RST}"
 fi
 if [ -n "$WT_NAME" ]; then
@@ -487,7 +487,11 @@ fi
 if [ -n "$ACTIVITY_LINE" ]; then
   R2="${R2:+${R2}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
 fi
-[ -n "$R2" ] && printf '%b\n' "$R2"
+if [ -n "$R2" ]; then
+  printf '%b\n' "$R2"
+elif [ "$PRESET" != "minimal" ]; then
+  printf '%b\n' "${CYAN}turn${RST} ${DIM}waiting...${RST}"
+fi
 
 # --- Token breakdown row (conditional): shown at 85%+ context ---
 CTX_TOKENS=$((CTX_SIZE * PCT / 100))

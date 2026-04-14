@@ -63,7 +63,7 @@ assert_contains "$STATUSLINE_PLAIN" "planner" "agent badge shows name"
 assert_contains "$STATUSLINE_PLAIN" "my-worktree" "worktree badge shows name"
 
 run_fixture "long-names" "minimal" 120
-assert_contains "$STATUSLINE_PLAIN" "super-long-agen" "agent name truncated at 15 chars"
+assert_contains "$STATUSLINE_PLAIN" "super-lo" "agent name truncated at 8 chars"
 assert_not_contains "$STATUSLINE_PLAIN" "super-long-agent-name-that-exceeds-limit" "full agent name NOT shown"
 assert_contains "$STATUSLINE_PLAIN" "extremely-long-" "worktree name truncated at 15 chars"
 
