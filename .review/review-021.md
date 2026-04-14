@@ -1,4 +1,4 @@
-# Review 021 — BUG: Only Row 1 Shows During Agent Runs
+# Review 021 — BUG: Only Row 1 Shows Before First Turn Completes
 
 **Date:** 2026-04-14  
 **Reviewer:** Claude Opus 4.6 (Lead & Reviewer)  
@@ -10,180 +10,143 @@
 ## User Report
 
 > "我发现在agent 运行过程中容易出现 hub 只有一行的问题"
+> "是不是因为第一次 turn 还没结束的原因 有了一个 turn 就好了"
 
-Screenshot shows:
-```
-[claude-opus-4.6-1m | Max] │ claude-session-monitor │ main ✓ │ mcp 27 │ skills 124 │ context █░░░░░░░ 32...
-►► bypass permissions on (shift+tab to cycle)
-```
-
-Only Row 1 visible. Row 2 (turn+tools), Row 3 (session), Row 4 (daily), Row 5 (vitals) all missing. The `32...` at the end of Row 1 is also suspicious — it looks like the output is being **truncated**.
-
----
-
-## Root Cause Analysis
-
-### Theory 1: Claude Code Truncates Statusline Output (MOST LIKELY)
-
-Claude Code's statusline renderer likely has a **line count limit** or **character limit** for the statusline output. When the statusline script outputs too many rows, Claude Code may:
-- Truncate to N lines (probably 2, since the `►► bypass permissions` line is Claude Code's own UI)
-- Truncate each line to a max character width
-
-**Evidence from screenshot:**
-- Row 1 ends with `32...` — the `...` is a truncation indicator from Claude Code
-- Only 1 row of our output is shown
-- The `bypass permissions on` line is Claude Code's own prompt UI, not our Row 2
-
-**Why it's worse during agent runs:**
-- Row 1 now includes: Model + Dir + Git + **Agent badge** (`⚡ claude-session-monitor`) + MCP badge + Skills badge + Context bar
-- That's **significantly longer** than a normal session's Row 1
-- `claude-session-monitor` alone adds ~25 characters
-- Combined with `mcp 27 │ skills 124 │ context ████████ 32%`, Row 1 can exceed 120+ chars
-
-**When Row 1 is very long, Claude Code may:**
-1. Truncate the line (confirmed: `32...` = truncation of `32%`)
-2. Refuse to show additional rows (to avoid overflowing the terminal)
-
-### Theory 2: Terminal Height Constraint
-
-During agent runs with task lists visible (the screenshot shows a long task tree), the available vertical space for the statusline is reduced. Claude Code may dynamically limit statusline rows based on available terminal height.
-
-### Theory 3: Script Timeout
-
-The statusline script may be hitting a timeout when:
-- `tail -80 "$TRANSCRIPT"` is slow on a very large transcript (agent sessions can be huge)
-- `jq` parsing of the transcript takes too long
-- Multiple file operations (MCP badge, skills badge) add latency
-
-Claude Code has a timeout for the statusline command. If exceeded, it may truncate the output to whatever was printed before timeout.
-
-### Theory 4: Preset/TRANSCRIPT Issue
-
-If `TRANSCRIPT` is empty or the transcript file doesn't exist yet (agent just started), many conditionals would skip. But this wouldn't explain the truncation of Row 1 itself.
-
----
-
-## Most Likely Root Cause: **Row 1 is too wide**
-
-Looking at the screenshot carefully:
-
+Screenshot shows only Row 1 during agent's first turn:
 ```
 [claude-opus-4.6-1m | Max] │ claude-session-monitor │ main ✓ │ mcp 27 │ skills 124 │ context █░░░░░░░ 32...
 ```
 
-Counting the visible characters:
-- `[claude-opus-4.6-1m | Max]` = 27 chars
-- `│ claude-session-monitor` = 25 chars
-- `│ main ✓` = 8 chars
-- `│ mcp 27` = 8 chars
-- `│ skills 124` = 12 chars
-- `│ context █░░░░░░░ 32%` = 22 chars
-
-**Total: ~102+ characters** (without ANSI escape codes)
-
-With ANSI escape sequences, the **byte length** is 3-5x larger (each `\033[xxm` adds 4-7 bytes). Claude Code may be measuring byte length, not display width, and truncating.
-
 ---
 
-## Recommendations
+## Root Cause: Row 2 is Conditional, First Turn Has All Zeros
 
-### Fix 1: Row 1 Width Management (HIGH)
+User identified correctly: **before the first turn finishes**, all turn-level data is zero.
 
-Row 1 has too many elements. When badges push it beyond ~100 visible chars, it breaks.
+### Row-by-Row Analysis at First Turn
 
-**Options:**
-A) **Move MCP + Skills badges to Row 2** (reduce Row 1 width)
-B) **Truncate agent name** to 8 chars instead of 15
-C) **Hide badges in compact mode when agent is active**
-D) **Dynamic width check**: count visible chars and drop segments if over limit
+| Row | Guard Condition | First-Turn State | Result |
+|-----|----------------|------------------|--------|
+| **Row 1** | None (always prints) | ✅ Model, dir, git, badges all available | **SHOWS** |
+| **Row 2** | `[ -n "$R2" ]` (line 490) | See breakdown below → **R2=""** | **SKIPPED** |
+| **Row 3** | None — `printf` always (line 577) | `session(id) token 0 │ time 0s │ cost $0.00` | **SHOULD SHOW** |
+| **Row 4** | `[ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ]` | May have data from other sessions | **MAYBE** |
+| **Row 5** | None (vitals preset) | CPU/mem/gpu always available | **SHOULD SHOW** |
 
-**Recommended approach (D):**
+### Why Row 2 is Empty (line 479-490)
+
 ```bash
-# After assembling R1, check approximate visible width
-_R1_PLAIN=$(printf '%b' "$R1" | sed 's/\x1b\[[0-9;]*m//g')
-_R1_LEN=${#_R1_PLAIN}
-if [ "$_R1_LEN" -gt "$COLS" ]; then
-  # Re-assemble without MCP/skills badges
-  # Or use compact labels
+R2=""
+# TURN_DISPLAY: needs INPUT_TOK>0 or CACHE_READ>0 → both 0 on first turn → empty
+[ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"          # SKIP
+
+# CACHE_HIT: needs TOTAL_INPUT>0 → 0 on first turn → empty
+[ -n "$CACHE_HIT" ] && R2="${R2:+...}${CACHE_HIT}"     # SKIP
+
+# THROUGHPUT: needs DURATION_MS>0 AND TOTAL_OUT>0 → both 0 → empty
+[ -n "$THROUGHPUT" ] && R2="${R2:+...}${THROUGHPUT}"    # SKIP
+
+# RL_DISPLAY: needs RL_5H_PCT>0 → no rate_limits in JSON → empty
+[ -n "$RL_DISPLAY" ] && R2="${R2:+...}${RL_DISPLAY}"   # SKIP
+
+# ACTIVITY_LINE: needs transcript with tool_use entries → empty on first turn
+[ -n "$ACTIVITY_LINE" ] && R2="${R2:+...}tools ..."    # SKIP
+
+# R2 is "" → row is NOT printed
+[ -n "$R2" ] && printf '%b\n' "$R2"                    # SKIP ← this is correct behavior
+```
+
+**Row 2 is correctly skipped** — there's no turn data to show yet. This is by design.
+
+### But Why Are Rows 3-5 ALSO Missing?
+
+Row 3 (line 577) does `printf '%b\n' "$R3"` unconditionally. Row 5 (vitals) also always prints. So the question is: **why do they not appear in the screenshot?**
+
+**Two possible explanations:**
+
+#### A. Claude Code's statusline renderer has a fixed display area
+
+Claude Code may allocate space for the statusline based on the **first render**. If the first render produces only 1 line, subsequent re-renders may be constrained to 1 line until a resize/refresh event.
+
+#### B. The screenshot was taken at a very specific moment
+
+The `32...` truncation suggests Claude Code was mid-render or the output was being consumed. Rows 3-5 may have been printed but not displayed due to a rendering race condition.
+
+#### C. Preset is `essential` for this session
+
+If `CLAUDE_STATUSLINE_PRESET=essential` or `~/.claude/statusline-preset` contains `essential`, the script exits at line 498:
+```bash
+[ "$PRESET" = "essential" ] && exit 0
+```
+This would skip Rows 3-5 entirely. But we verified the file contains `full`.
+
+**Most likely: Explanation A** — Claude Code locks the statusline height to the initial render's line count.
+
+---
+
+## The Real Fix: Row 2 Should Never Be Completely Empty
+
+The fix is simple: **always show something on Row 2**, even when there's no turn data. This ensures the first render has the right number of lines, so Claude Code allocates enough space.
+
+### Option 1: Show a "waiting" indicator (RECOMMENDED)
+
+```bash
+# Line 490: Always print Row 2
+if [ -n "$R2" ]; then
+  printf '%b\n' "$R2"
+else
+  printf '%b\n' "${CYAN}turn${RST} ${DIM}waiting...${RST}"
 fi
 ```
 
-### Fix 2: Reduce Badge Verbosity (MEDIUM)
+### Option 2: Show at least context tokens on Row 2
 
-When agent badge is present (long name), other badges should compress:
 ```bash
-# Normal:  mcp 27 │ skills 124 │ context ████████ 32%
-# With agent: ⚡ claude-ses... │ ctx 32%
-# (drop mcp + skills, use compact ctx)
+if [ -z "$R2" ] && [ "$CTX_TOKENS" -gt 0 ]; then
+  R2="${CYAN}turn${RST} ${DIM}—${RST}"
+fi
+[ -n "$R2" ] && printf '%b\n' "$R2"
 ```
 
-### Fix 3: Limit Row Count Based on Terminal (MEDIUM)
-
-Claude Code may have a fixed line limit (e.g., 2 lines). If so, we should prioritize which rows to show:
+### Option 3: Show empty separator line
 
 ```bash
-# Detect Claude Code's statusline max lines
-# If only N lines allowed, show most important N rows
-MAX_ROWS="${CLAUDE_SL_MAX_ROWS:-5}"
-```
-
-### Fix 4: Performance Guard for Agent Sessions (LOW)
-
-Agent sessions have huge transcripts. Add a guard:
-
-```bash
-# Skip transcript parsing for huge files
-_TRANSCRIPT_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
-if [ "$_TRANSCRIPT_LINES" -gt 10000 ]; then
-  # Skip tool activity parsing, use cached data only
+if [ -n "$R2" ]; then
+  printf '%b\n' "$R2"
+else
+  printf '%b\n' "${DIM}···${RST}"
 fi
 ```
 
 ---
 
-## Verification Steps
+## Secondary Issue: Row 1 Truncation (`32...`)
 
-Dev agent should:
+Even though it's not the primary cause, Row 1 IS too wide in this screenshot. The `32...` shows truncation of `32%`. This needs fixing independently:
 
-1. **Check Claude Code's statusline line/char limits:**
-   ```bash
-   # Create a test script that outputs many lines
-   echo -e "Line1\nLine2\nLine3\nLine4\nLine5" 
-   # See how many lines Claude Code actually renders
-   ```
-
-2. **Measure actual Row 1 width in agent mode:**
-   ```bash
-   # Add debug output
-   printf '%b' "$R1" | sed 's/\x1b\[[0-9;]*m//g' | wc -c
-   ```
-
-3. **Test with minimal Row 1:**
-   ```bash
-   # Temporarily remove MCP+Skills badges, see if more rows appear
-   ```
+1. **Agent name `claude-session-monitor`** should truncate to 8 chars → `claude-s...`
+2. When agent badge present, consider skipping `mcp` and `skills` badges
+3. Dynamic width check (see review-021 original spec)
 
 ---
 
 ## Action Items for Dev Agent
 
 ### HIGH
-1. **Add dynamic width check for Row 1** — if `_R1_LEN > COLS`, drop lower-priority badges (MCP, skills)
-2. **Truncate agent name more aggressively** when Row 1 is crowded — 8 chars instead of 15
-3. **Investigate Claude Code's actual max statusline output** — how many lines/chars does it allow?
+1. **Always print Row 2** — show `turn waiting...` or `turn —` when all turn data is zero. This prevents Claude Code from locking to a 1-line statusline on first render.
 
 ### MEDIUM
-4. **Add `CLAUDE_SL_MAX_ROWS` env var** — let users control row count
-5. **Compact mode for badges when agent active** — drop verbose labels
+2. **Truncate agent name to 8 chars** (currently 15) — `${AGENT_NAME:0:8}`
+3. **Test the fix** by starting a new session and verifying all rows appear immediately
 
 ---
 
 ## Summary
 
-**Problem:** Row 1 with agent badge + MCP + skills + context bar exceeds terminal/Claude Code width limits, causing either truncation or suppression of subsequent rows.
+**Root cause:** User correctly identified — before the first turn completes, `INPUT_TOK`, `CACHE_READ`, `TOTAL_OUT`, `DURATION_MS`, `ACTIVITY_LINE` are all zero/empty, causing Row 2's `[ -n "$R2" ]` guard to skip the row entirely. If Claude Code locks statusline height to the first render, subsequent renders with more data don't get additional lines.
 
-**Most likely fix:** Dynamic Row 1 width management — drop MCP/skills badges when agent name is present, or move them to Row 2.
+**Fix:** Always output something for Row 2 (e.g., `turn waiting...`), so the first render establishes the correct line count.
 
 ---
 
-*Dev agent: The core issue is Row 1 being too wide when agent badge + MCP + skills + context are all present. Add a visible-width check after R1 assembly. If over COLS, drop badges progressively (skills first, then MCP, then shorten agent name). See Fix 1 option D above.*
+*Dev agent: Change line 490 from `[ -n "$R2" ] && printf '%b\n' "$R2"` to always print Row 2 with a fallback like `turn waiting...` or `turn —`. This ensures Claude Code allocates enough vertical space on first render. Also truncate `AGENT_NAME` from `:0:15` to `:0:8`.*
