@@ -21,11 +21,13 @@ fi
 input=$(cat)
 
 # --- Temp file cleanup trap ---
-EVENTS_FILE="/tmp/.claude_sl_events_$$"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/claude-statusline"
+mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
+EVENTS_FILE="${CACHE_DIR}/events_$$"
 trap 'rm -f "$EVENTS_FILE"' EXIT
 
 # --- Clean up stale statusline cache files (>1 day old) ---
-find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_sl_*' -mtime +1 -delete 2>/dev/null
+find "$CACHE_DIR" -maxdepth 1 -name '*.cache' -mtime +1 -delete 2>/dev/null
 
 # --- Platform detection ---
 OS="$(uname -s)"
@@ -217,14 +219,14 @@ fmt_tok() {
 
 fmt_cost() { printf '$%s' "$(printf '%s' "$1" | awk '{printf "%.2f", $1}')"; }
 
+NOW=$(date +%s)
+
 file_age() {
   local f="$1"
   [ -f "$f" ] || { echo 9999; return; }
-  if is_mac; then echo $(( $(date +%s) - $(stat -f%m "$f" 2>/dev/null || echo 0) ))
-  else echo $(( $(date +%s) - $(stat -c%Y "$f" 2>/dev/null || echo 0) )); fi
+  if is_mac; then echo $(( NOW - $(stat -f%m "$f" 2>/dev/null || echo 0) ))
+  else echo $(( NOW - $(stat -c%Y "$f" 2>/dev/null || echo 0) )); fi
 }
-
-NOW=$(date +%s)
 
 # --- Session ID for cache isolation ---
 if [ -n "$SESSION_ID" ]; then
@@ -241,7 +243,7 @@ fi
 GIT_DISPLAY=""
 if [ -n "$DIR" ]; then
   _DIR_HASH=$(printf '%s' "$DIR" | cksum | awk '{print $1}')
-  GIT_CACHE="/tmp/.claude_sl_git_${_DIR_HASH}"
+  GIT_CACHE="${CACHE_DIR}/git_${_DIR_HASH}.cache"
   if [ "$(file_age "$GIT_CACHE")" -lt 10 ]; then
     GIT_INFO=$(cat "$GIT_CACHE")
   else
@@ -327,15 +329,15 @@ fi
 # Skills count badge
 _SKILLS_DIR="$HOME/.claude/skills"
 if [ -d "$_SKILLS_DIR" ]; then
-  _SKILLS_COUNT=$(ls "$_SKILLS_DIR" 2>/dev/null | wc -l | tr -d ' ')
+  _SKILLS_COUNT=$(find "$_SKILLS_DIR" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
   [ "${_SKILLS_COUNT:-0}" -gt 0 ] 2>/dev/null && \
     BADGES="${BADGES}${SEP}${DIM}skills${RST} ${VAL}${_SKILLS_COUNT}${RST}"
 fi
 
 # --- Update notice ---
 UPDATE_BADGE=""
-if [ -f "/tmp/.claude_sl_update_available" ]; then
-  NEW_VER=$(cat "/tmp/.claude_sl_update_available" 2>/dev/null)
+if [ -f "${CACHE_DIR}/update_available" ]; then
+  NEW_VER=$(cat "${CACHE_DIR}/update_available" 2>/dev/null)
   [ -n "$NEW_VER" ] && UPDATE_BADGE="${SEP}${YELLOW}${BOLD}↑ v${NEW_VER}${RST}"
 fi
 
@@ -426,7 +428,7 @@ if [ "$RL_5H_PCT" -gt 0 ] 2>/dev/null; then
 fi
 
 # Tool activity (last 3 tools, cached 2s)
-ACTIVITY_CACHE="/tmp/.claude_sl_activity_${_SID}"
+ACTIVITY_CACHE="${CACHE_DIR}/activity_${_SID}.cache"
 ACTIVITY_LINE=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if [ "$(file_age "$ACTIVITY_CACHE")" -lt 2 ]; then
@@ -507,7 +509,7 @@ fi
 
 # --- Session message & compact counts (from transcript, cached 10s) ---
 SESS_USER_MSGS=0 SESS_LLM_MSGS=0 SESS_COMPACTS=0
-SESS_MSG_CACHE="/tmp/.claude_sl_sessmsg_${_SID}"
+SESS_MSG_CACHE="${CACHE_DIR}/sessmsg_${_SID}.cache"
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if [ "$(file_age "$SESS_MSG_CACHE")" -lt 10 ] && [ -f "$SESS_MSG_CACHE" ]; then
     . "$SESS_MSG_CACHE"
@@ -585,7 +587,7 @@ printf '%b\n' "$R3"
 # =============================================================
 
 # --- Daily token tracking (transcript-based — scans ALL sessions today) ---
-DAILY_CACHE="/tmp/.claude_sl_daily_$(id -u)"
+DAILY_CACHE="${CACHE_DIR}/daily_$(id -u).cache"
 DAY_COST="" DAY_TOK="" DAY_SESSIONS=""
 
 if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
@@ -595,8 +597,8 @@ else
   _PROJECTS_DIR="$HOME/.claude/projects"
   if [ -d "$_PROJECTS_DIR" ]; then
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
-      -newermt "$TODAY 00:00" 2>/dev/null | \
-      xargs grep -h "input_tokens" 2>/dev/null | \
+      -newermt "$TODAY 00:00" -type f -print0 2>/dev/null | \
+      xargs -0 grep -h "input_tokens" 2>/dev/null | \
       jq -c '.message.usage // empty |
         {i: (.input_tokens // 0), o: (.output_tokens // 0),
          cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
@@ -607,11 +609,15 @@ else
         tokens: (map(.i + .o + .cr) | add // 0),
         messages: length
       }' 2>/dev/null)
-    DAY_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.tokens // 0' 2>/dev/null)
-    DAY_SESSIONS=$(printf '%s' "$_DAY_STATS" | jq -r '.messages // 0' 2>/dev/null)
-    DAY_INPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.input // 0' 2>/dev/null)
-    DAY_OUTPUT=$(printf '%s' "$_DAY_STATS" | jq -r '.output // 0' 2>/dev/null)
-    DAY_CACHE_TOK=$(printf '%s' "$_DAY_STATS" | jq -r '.cache_read // 0' 2>/dev/null)
+    eval "$(printf '%s' "$_DAY_STATS" | jq -r '
+      @sh "DAY_TOK=\(.tokens // 0)",
+      @sh "DAY_SESSIONS=\(.messages // 0)",
+      @sh "DAY_INPUT=\(.input // 0)",
+      @sh "DAY_OUTPUT=\(.output // 0)",
+      @sh "DAY_CACHE_TOK=\(.cache_read // 0)"
+    ' 2>/dev/null)" 2>/dev/null || {
+      DAY_TOK=0 DAY_SESSIONS=0 DAY_INPUT=0 DAY_OUTPUT=0 DAY_CACHE_TOK=0
+    }
     _SHOW_COST=false
     if [ "${CLAUDE_SL_SHOW_API_EQUIV_COST:-0}" = "1" ]; then
       _SHOW_COST=true
@@ -620,8 +626,8 @@ else
       [ "$_IS_API" = "yes" ] && _SHOW_COST=true
     fi
     if [ "$_SHOW_COST" = true ]; then
-      DAY_COST=$(printf '%s' "$_DAY_STATS" | jq -r '[.input, .output, .cache_read] | @tsv' 2>/dev/null | \
-        awk -F'\t' '{printf "%.4f", ($1*3 + $2*15 + $3*0.3)/1000000}')
+      DAY_COST=$(awk -v i="${DAY_INPUT:-0}" -v o="${DAY_OUTPUT:-0}" -v c="${DAY_CACHE_TOK:-0}" \
+        'BEGIN{printf "%.4f", (i*3 + o*15 + c*0.3)/1000000}')
     else
       DAY_COST=""
     fi
@@ -663,7 +669,7 @@ fi
 # ROW 5: System Vitals — btop-style mini bars          [VITALS]
 # =============================================================
 
-SYS_CACHE="${TMPDIR:-/tmp}/.claude_sl_sys_$(id -u)"
+SYS_CACHE="${CACHE_DIR}/sys_$(id -u).cache"
 if [ "$(file_age "$SYS_CACHE")" -lt 5 ]; then
   . "$SYS_CACHE"
 else
@@ -688,7 +694,7 @@ else
     BV=$(pmset -g batt 2>/dev/null | grep -o '[0-9]\+%' | head -1 | tr -d '%')
   elif is_linux; then
     read -r _ cu cn cs ci _ < /proc/stat 2>/dev/null
-    PREV_STAT="/tmp/.claude_sl_cpu_prev"
+    PREV_STAT="${CACHE_DIR}/cpu_prev"
     if [ -f "$PREV_STAT" ]; then
       read -r pu pn ps pi < "$PREV_STAT"
       TOTAL_D=$(( (cu+cn+cs+ci) - (pu+pn+ps+pi) )); IDLE_D=$(( ci - pi ))
@@ -715,18 +721,10 @@ else
   DISK_PCT=$(printf '%s' "$DISK_LINE" | awk '{gsub(/%/,""); print $5}')
   if is_mac; then LOAD_AVG=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
   else LOAD_AVG=$(awk '{print $1}' /proc/loadavg 2>/dev/null); fi
-  cat > "$SYS_CACHE" <<CACHE
-CPU_USED='${CPU_USED:-0}'
-MEM_USED='${MEM_USED:-0M}'
-MEM_TOTAL_GB='${MEM_TOTAL_GB:-0}'
-MEM_PCT='${MEM_PCT:-0}'
-GPU_PCT='${GPU_PCT:-0}'
-DISK_USED='${DISK_USED:-0G}'
-DISK_TOTAL='${DISK_TOTAL:-0G}'
-DISK_PCT='${DISK_PCT:-0}'
-BV='${BV:-}'
-LOAD_AVG='${LOAD_AVG:-0}'
-CACHE
+  printf "CPU_USED=%q\nMEM_USED=%q\nMEM_TOTAL_GB=%q\nMEM_PCT=%q\nGPU_PCT=%q\nDISK_USED=%q\nDISK_TOTAL=%q\nDISK_PCT=%q\nBV=%q\nLOAD_AVG=%q\n" \
+    "${CPU_USED:-0}" "${MEM_USED:-0M}" "${MEM_TOTAL_GB:-0}" "${MEM_PCT:-0}" \
+    "${GPU_PCT:-0}" "${DISK_USED:-0G}" "${DISK_TOTAL:-0G}" "${DISK_PCT:-0}" \
+    "${BV:-}" "${LOAD_AVG:-0}" > "$SYS_CACHE"
 fi
 
 R5="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${VAL}${CPU_USED:-0}%${RST}"

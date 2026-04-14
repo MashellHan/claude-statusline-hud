@@ -68,6 +68,7 @@ teardown_test_env() {
 setup_test() {
   rm -f "${_TEST_TMPDIR}"/.claude_sl_* 2>/dev/null || true
   rm -f /tmp/.claude_sl_* 2>/dev/null || true
+  rm -rf "${HOME}/.cache/claude-statusline" 2>/dev/null || true
 }
 
 # ================================================================
@@ -497,17 +498,11 @@ seed_vitals_cache() {
   local gpu="${5:-10}" disk_used="${6:-120G}" disk_total="${7:-500G}" disk_pct="${8:-24}"
   local bv="${9:-85}" load="${10:-2.1}"
 
-  local cache_file="${TMPDIR:-/tmp}/.claude_sl_sys_$(id -u)"
-  cat > "$cache_file" <<CACHE
-CPU_USED='${cpu}'
-MEM_USED='${mem_used}'
-MEM_TOTAL_GB='${mem_total}'
-MEM_PCT='${mem_pct}'
-GPU_PCT='${gpu}'
-DISK_USED='${disk_used}'
-DISK_TOTAL='${disk_total}'
-DISK_PCT='${disk_pct}'
-BV='${bv}'
-LOAD_AVG='${load}'
-CACHE
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/claude-statusline"
+  mkdir -p "$cache_dir" 2>/dev/null && chmod 700 "$cache_dir" 2>/dev/null
+  local cache_file="${cache_dir}/sys_$(id -u).cache"
+  printf "CPU_USED=%q\nMEM_USED=%q\nMEM_TOTAL_GB=%q\nMEM_PCT=%q\nGPU_PCT=%q\nDISK_USED=%q\nDISK_TOTAL=%q\nDISK_PCT=%q\nBV=%q\nLOAD_AVG=%q\n" \
+    "$cpu" "$mem_used" "$mem_total" "$mem_pct" \
+    "$gpu" "$disk_used" "$disk_total" "$disk_pct" \
+    "$bv" "$load" > "$cache_file"
 }
