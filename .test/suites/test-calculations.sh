@@ -46,7 +46,7 @@ assert_contains "$STATUSLINE_PLAIN" "0%" "cache hit rate = 0% when no reads"
 run_statusline "$(make_json '{"context_window":{"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}')" "essential" 120
 # When TOTAL_INPUT is 0, cache section is not shown at all
 # The "0%" we see is from the context PCT, not cache
-CACHE_LINES=$(printf '%s' "$STATUSLINE_PLAIN" | grep -c "cache")
+CACHE_LINES=$(printf '%s' "$STATUSLINE_PLAIN" | grep -c "cache" || true)
 # May or may not show "cache" depending on the 0/0 guard
 # Just verify no crash
 assert_contains "$STATUSLINE_PLAIN" "context" "zero cache inputs still shows context"
