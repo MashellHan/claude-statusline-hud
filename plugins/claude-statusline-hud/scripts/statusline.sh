@@ -599,7 +599,9 @@ else
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
       -newermt "$TODAY 00:00" -type f -print0 2>/dev/null | \
       xargs -0 grep -h "input_tokens" 2>/dev/null | \
-      jq -c '.message.usage // empty |
+      jq -c --arg today "$TODAY" '
+        select(.timestamp != null and (.timestamp | startswith($today))) |
+        .message.usage // empty |
         {i: (.input_tokens // 0), o: (.output_tokens // 0),
          cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
       jq -s '{
