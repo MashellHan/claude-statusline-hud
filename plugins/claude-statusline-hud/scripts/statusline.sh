@@ -595,12 +595,28 @@ if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
 else
   TODAY=$(date +%Y-%m-%d)
   _PROJECTS_DIR="$HOME/.claude/projects"
+  # Calculate local midnight as UTC range for correct timezone handling
+  if is_mac; then
+    _TODAY_START_UTC=$(date -u -j -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    _TOMORROW_START_UTC=$(date -u -j -v+1d -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+  else
+    _TODAY_START_UTC=$(date -u -d "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    _TOMORROW_START_UTC=$(date -u -d "$TODAY 00:00:00 + 1 day" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+  fi
+  _TODAY_START_UTC="${_TODAY_START_UTC:-${TODAY}T00:00:00Z}"
+  _TOMORROW_START_UTC="${_TOMORROW_START_UTC:-9999-12-31T23:59:59Z}"
+  # Use yesterday as pre-filter to catch cross-day sessions while keeping scan fast
+  if is_mac; then
+    _YESTERDAY=$(date -v-1d +%Y-%m-%d 2>/dev/null || echo "$TODAY")
+  else
+    _YESTERDAY=$(date -d "yesterday" +%Y-%m-%d 2>/dev/null || echo "$TODAY")
+  fi
   if [ -d "$_PROJECTS_DIR" ]; then
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
-      -newermt "$TODAY 00:00" -type f -print0 2>/dev/null | \
+      -newermt "$_YESTERDAY 00:00" -type f -print0 2>/dev/null | \
       xargs -0 grep -h "input_tokens" 2>/dev/null | \
-      jq -c --arg today "$TODAY" '
-        select(.timestamp != null and (.timestamp | startswith($today))) |
+      jq -c --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+        select(.timestamp != null and .timestamp >= $start and .timestamp < $end) |
         .message.usage // empty |
         {i: (.input_tokens // 0), o: (.output_tokens // 0),
          cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
