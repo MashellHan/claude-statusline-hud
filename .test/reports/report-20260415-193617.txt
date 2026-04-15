@@ -1,15 +1,15 @@
 ═══ Claude Statusline HUD Test Report ═══
-Date: 2026-04-11 21:25:35
-Duration: 29.0s
+Date: 2026-04-15 19:36:17
+Duration: 34.0s
 
 Suite Results:
   ✓ calculations         19/19
   ✓ colors               14/14
-  ✓ conditional          21/21
+  ✓ conditional          24/24
   ✓ edge-cases           25/25
   ✓ formatting           29/29
   ✓ git                  10/10
-  ✓ presets              20/20
+  ✓ presets              30/30
   ✓ widths               17/17
 
-Total: 155/155 PASSED (100%)
+Total: 168/168 PASSED (100%)

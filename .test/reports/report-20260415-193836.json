@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-04-15T19:38:36+0800",
+  "duration_ms": 7000,
+  "total": 65,
+  "passed": 64,
+  "failed": 1,
+  "suites": {"daily":{"total":9,"passed":9,"failed":0},"calculations":{"total":19,"passed":19,"failed":0},"conditional":{"total":24,"passed":24,"failed":0},"widths":{"total":13,"passed":12,"failed":1}},
+  "failures": [{"suite":"widths","test":"normal: load shown","expected":"see output","actual":"see output"}],
+  "regression": {"detected":true,"new_failures":[
+  "normal: load shown"
+],"fixed":[]}
+}

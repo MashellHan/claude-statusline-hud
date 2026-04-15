@@ -66,9 +66,13 @@ teardown_test_env() {
 
 # Per-test isolation (clears caches between tests within a suite)
 setup_test() {
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/claude-statusline"
   rm -f "${_TEST_TMPDIR}"/.claude_sl_* 2>/dev/null || true
   rm -f /tmp/.claude_sl_* 2>/dev/null || true
-  rm -rf "${HOME}/.cache/claude-statusline" 2>/dev/null || true
+  rm -f "$cache_dir"/daily_*.cache 2>/dev/null || true
+  rm -f "$cache_dir"/activity_*.cache 2>/dev/null || true
+  rm -f "$cache_dir"/sessmsg_*.cache 2>/dev/null || true
+  rm -f "$cache_dir"/git_*.cache 2>/dev/null || true
 }
 
 # ================================================================

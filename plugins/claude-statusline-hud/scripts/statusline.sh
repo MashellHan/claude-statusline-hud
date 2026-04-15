@@ -618,7 +618,8 @@ else
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
       -type f -print0 2>/dev/null | \
       xargs -0 grep -h "input_tokens" 2>/dev/null | \
-      jq -c --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+      jq -R -c --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+        fromjson? |
         select(.timestamp != null and .timestamp >= $start and .timestamp < $end) |
         .message.usage // empty |
         {i: (.input_tokens // 0), o: (.output_tokens // 0),

@@ -1,0 +1,16 @@
+═══ Claude Statusline HUD Test Report ═══
+Date: 2026-04-15 19:38:36
+Duration: 7.0s
+
+Suite Results:
+  ✓ daily                9/9
+  ✓ calculations         19/19
+  ✓ conditional          24/24
+  ✗ widths               12/13  (1 FAILED)
+
+Total: 64/65 PASSED (98%)
+
+FAILURES:
+  [widths] normal: load shown
+    Expected: see output
+    Actual:   see output
