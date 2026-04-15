@@ -588,7 +588,7 @@ printf '%b\n' "$R3"
 
 # --- Daily token tracking (transcript-based — scans ALL sessions today) ---
 DAILY_CACHE="${CACHE_DIR}/daily_$(id -u).cache"
-DAY_COST="" DAY_TOK="" DAY_SESSIONS=""
+DAY_COST="" DAY_TOK="" DAY_SESSIONS="" DAY_USER_MSGS=0 DAY_LLM_MSGS=0
 
 if [ "$(file_age "$DAILY_CACHE")" -lt 30 ] && [ -f "$DAILY_CACHE" ]; then
   . "$DAILY_CACHE"
@@ -633,6 +633,17 @@ else
         tokens: (map(.i + .o + .cc + .cr) | add // 0),
         messages: length
       }' 2>/dev/null)
+    # Count user↑ / assistant↓ messages across all today's transcripts
+    _DAY_MSG_COUNTS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
+      -type f -print0 2>/dev/null | \
+      xargs -0 grep -h '"type"' 2>/dev/null | \
+      jq -R -c --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+        fromjson? |
+        select(.timestamp != null and .timestamp >= $start and .timestamp < $end) |
+        .type' 2>/dev/null | \
+      awk '/"user"/{u++} /"assistant"/{a++} END{printf "%d %d", u+0, a+0}')
+    DAY_USER_MSGS=$(printf '%s' "$_DAY_MSG_COUNTS" | awk '{print $1}')
+    DAY_LLM_MSGS=$(printf '%s' "$_DAY_MSG_COUNTS" | awk '{print $2}')
     eval "$(printf '%s' "$_DAY_STATS" | jq -r '
       @sh "DAY_TOK=\(.tokens // 0)",
       @sh "DAY_SESSIONS=\(.messages // 0)",
@@ -656,8 +667,8 @@ else
     else
       DAY_COST=""
     fi
-    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_CREATE='%s'\nDAY_CACHE_TOK='%s'\n" \
-      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_CREATE" "$DAY_CACHE_TOK" > "$DAILY_CACHE"
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_CREATE='%s'\nDAY_CACHE_TOK='%s'\nDAY_USER_MSGS='%s'\nDAY_LLM_MSGS='%s'\n" \
+      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_CREATE" "$DAY_CACHE_TOK" "$DAY_USER_MSGS" "$DAY_LLM_MSGS" > "$DAILY_CACHE"
   fi
 fi
 
@@ -670,8 +681,12 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
     R4="${R4} ${CYAN}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
   R4="${R4} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
   R4="${R4} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
-  [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
+  # Message counts: user↑llm↓ format (matching session row style)
+  if [ "${DAY_USER_MSGS:-0}" -gt 0 ] 2>/dev/null || [ "${DAY_LLM_MSGS:-0}" -gt 0 ] 2>/dev/null; then
+    R4="${R4}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "${DAY_USER_MSGS:-0}")↑$(fmt_tok "${DAY_LLM_MSGS:-0}")↓${RST}"
+  elif [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ]; then
     R4="${R4}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+  fi
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
     R4="${R4}${SEP}${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
