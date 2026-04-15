@@ -401,11 +401,11 @@ if [ "$TOTAL_INPUT" -gt 0 ]; then
   CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
 fi
 
-# Throughput (per-turn)
+# Throughput (session-level average)
 THROUGHPUT=""
 if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
-  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
+  THROUGHPUT="${CYAN}speed${RST}${DIM}(sess)${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
 # Rate limit indicator
@@ -596,35 +596,40 @@ else
   TODAY=$(date +%Y-%m-%d)
   _PROJECTS_DIR="$HOME/.claude/projects"
   # Calculate local midnight as UTC range for correct timezone handling
+  # Use epoch as intermediate to avoid macOS `date -u -j -f` parsing input as UTC
   if is_mac; then
-    _TODAY_START_UTC=$(date -u -j -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
-    _TOMORROW_START_UTC=$(date -u -j -v+1d -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    _TODAY_START_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" "+%s" 2>/dev/null)
   else
-    _TODAY_START_UTC=$(date -u -d "$TODAY 00:00:00" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
-    _TOMORROW_START_UTC=$(date -u -d "$TODAY 00:00:00 + 1 day" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    _TODAY_START_EPOCH=$(date -d "$TODAY 00:00:00" +%s 2>/dev/null)
+  fi
+  if [ -n "$_TODAY_START_EPOCH" ]; then
+    _TOMORROW_START_EPOCH=$((_TODAY_START_EPOCH + 86400))
+    if is_mac; then
+      _TODAY_START_UTC=$(date -u -r "$_TODAY_START_EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+      _TOMORROW_START_UTC=$(date -u -r "$_TOMORROW_START_EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    else
+      _TODAY_START_UTC=$(date -u -d "@$_TODAY_START_EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+      _TOMORROW_START_UTC=$(date -u -d "@$_TOMORROW_START_EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+    fi
   fi
   _TODAY_START_UTC="${_TODAY_START_UTC:-${TODAY}T00:00:00Z}"
   _TOMORROW_START_UTC="${_TOMORROW_START_UTC:-9999-12-31T23:59:59Z}"
-  # Use yesterday as pre-filter to catch cross-day sessions while keeping scan fast
-  if is_mac; then
-    _YESTERDAY=$(date -v-1d +%Y-%m-%d 2>/dev/null || echo "$TODAY")
-  else
-    _YESTERDAY=$(date -d "yesterday" +%Y-%m-%d 2>/dev/null || echo "$TODAY")
-  fi
   if [ -d "$_PROJECTS_DIR" ]; then
     _DAY_STATS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
-      -newermt "$_YESTERDAY 00:00" -type f -print0 2>/dev/null | \
+      -type f -print0 2>/dev/null | \
       xargs -0 grep -h "input_tokens" 2>/dev/null | \
       jq -c --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
         select(.timestamp != null and .timestamp >= $start and .timestamp < $end) |
         .message.usage // empty |
         {i: (.input_tokens // 0), o: (.output_tokens // 0),
+         cc: (.cache_creation_input_tokens // 0),
          cr: (.cache_read_input_tokens // 0)}' 2>/dev/null | \
       jq -s '{
         input: (map(.i) | add // 0),
         output: (map(.o) | add // 0),
+        cache_create: (map(.cc) | add // 0),
         cache_read: (map(.cr) | add // 0),
-        tokens: (map(.i + .o + .cr) | add // 0),
+        tokens: (map(.i + .o + .cc + .cr) | add // 0),
         messages: length
       }' 2>/dev/null)
     eval "$(printf '%s' "$_DAY_STATS" | jq -r '
@@ -632,9 +637,10 @@ else
       @sh "DAY_SESSIONS=\(.messages // 0)",
       @sh "DAY_INPUT=\(.input // 0)",
       @sh "DAY_OUTPUT=\(.output // 0)",
+      @sh "DAY_CACHE_CREATE=\(.cache_create // 0)",
       @sh "DAY_CACHE_TOK=\(.cache_read // 0)"
     ' 2>/dev/null)" 2>/dev/null || {
-      DAY_TOK=0 DAY_SESSIONS=0 DAY_INPUT=0 DAY_OUTPUT=0 DAY_CACHE_TOK=0
+      DAY_TOK=0 DAY_SESSIONS=0 DAY_INPUT=0 DAY_OUTPUT=0 DAY_CACHE_CREATE=0 DAY_CACHE_TOK=0
     }
     _SHOW_COST=false
     if [ "${CLAUDE_SL_SHOW_API_EQUIV_COST:-0}" = "1" ]; then
@@ -644,13 +650,13 @@ else
       [ "$_IS_API" = "yes" ] && _SHOW_COST=true
     fi
     if [ "$_SHOW_COST" = true ]; then
-      DAY_COST=$(awk -v i="${DAY_INPUT:-0}" -v o="${DAY_OUTPUT:-0}" -v c="${DAY_CACHE_TOK:-0}" \
-        'BEGIN{printf "%.4f", (i*3 + o*15 + c*0.3)/1000000}')
+      DAY_COST=$(awk -v i="${DAY_INPUT:-0}" -v o="${DAY_OUTPUT:-0}" -v cc="${DAY_CACHE_CREATE:-0}" -v cr="${DAY_CACHE_TOK:-0}" \
+        'BEGIN{printf "%.4f", (i*3 + o*15 + cc*3.75 + cr*0.3)/1000000}')
     else
       DAY_COST=""
     fi
-    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_TOK='%s'\n" \
-      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_TOK" > "$DAILY_CACHE"
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_CREATE='%s'\nDAY_CACHE_TOK='%s'\n" \
+      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_CREATE" "$DAY_CACHE_TOK" > "$DAILY_CACHE"
   fi
 fi
 
@@ -659,6 +665,8 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   R4="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
   R4="${R4} ${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
   R4="${R4} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
+    R4="${R4} ${CYAN}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
   R4="${R4} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
   R4="${R4} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
   [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ] && \
