@@ -219,6 +219,39 @@ fmt_tok() {
 
 fmt_cost() { printf '$%s' "$(printf '%s' "$1" | awk '{printf "%.2f", $1}')"; }
 
+# --- Visible-width helpers (ANSI-aware) for table-style alignment ---
+_vlen() {
+  # Visible character length of $1, ignoring ANSI CSI escapes.
+  # Uses awk so we don't fork sed; multi-byte chars (emoji, ↑↓) count as 1 grapheme
+  # only when LANG supports it — but for our labels this is good enough.
+  LC_ALL=C.UTF-8 awk -v s="$1" 'BEGIN{
+    gsub(/\033\[[0-9;]*m/, "", s);
+    # crude: count multi-byte UTF-8 sequences as single chars
+    n=0; i=1; L=length(s);
+    while (i<=L) {
+      c=substr(s,i,1); b=0;
+      if (c<"\200") b=1;
+      else if (c<"\300") b=1;          # stray continuation
+      else if (c<"\340") b=2;
+      else if (c<"\360") b=3;
+      else b=4;
+      n++; i+=b;
+    }
+    print n;
+  }' 2>/dev/null
+}
+_vpad() {
+  # Right-pad string $1 (may contain ANSI) to visible width $2.
+  local s="$1" w="$2" len pad
+  len=$(_vlen "$s")
+  pad=$((w - len))
+  if [ "$pad" -gt 0 ]; then
+    printf '%s%*s' "$s" "$pad" ""
+  else
+    printf '%s' "$s"
+  fi
+}
+
 NOW=$(date +%s)
 
 file_age() {
@@ -557,28 +590,35 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-# --- Assemble Row 3 ---
-R3="${CYAN}session${RST}"
+# --- Assemble Row 3 (table-aligned with Row 4) ---
+# Column widths (shared with R4 below) — visible chars including label + value
+COL_PREFIX=18  # "session(abcdef12)" / "day-total(MM-DD)"
+COL_TOKEN=15   # "token 5.7M"
+COL_MSG=18     # "msg 12↑45↓ ⟳3"
+COL_TIME=24    # "time 5m 30s (api 80%)"
+COL_COST=14    # "cost $12.34"
+
+_R3_PREFIX="${CYAN}session${RST}"
 if [ -n "$SESSION_ID" ]; then
   _SID_SHORT="${SESSION_ID:0:8}"
-  R3="${CYAN}session${RST}${DIM}(${RST}${VAL}${_SID_SHORT}${RST}${DIM})${RST}"
+  _R3_PREFIX="${CYAN}session${RST}${DIM}(${RST}${VAL}${_SID_SHORT}${RST}${DIM})${RST}"
 fi
-# Session tokens
-if [ "$_TOK_HEADLINE" -gt 0 ]; then
-  R3="${R3} ${CYAN}token${RST} ${VAL}$(fmt_tok $_TOK_HEADLINE)${RST}"
-fi
-# Message counts: compact user↑llm↓ format
+_R3_TOKEN=""
+[ "$_TOK_HEADLINE" -gt 0 ] && _R3_TOKEN="${CYAN}token${RST} ${VAL}$(fmt_tok $_TOK_HEADLINE)${RST}"
+_R3_MSG=""
 if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/null; then
-  R3="${R3}${SEP}${CYAN}msg${RST} ${VAL}${SESS_USER_MSGS}↑${SESS_LLM_MSGS}↓${RST}"
-  [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && R3="${R3} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
+  _R3_MSG="${CYAN}msg${RST} ${VAL}${SESS_USER_MSGS}↑${SESS_LLM_MSGS}↓${RST}"
+  [ "$SESS_COMPACTS" -gt 0 ] 2>/dev/null && _R3_MSG="${_R3_MSG} ${YELLOW}⟳${SESS_COMPACTS}${RST}"
 fi
-# Time
-R3="${R3}${SEP}${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
-# Cost
-R3="${R3}${SEP}${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
-# Code changes
+_R3_TIME="${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
+_R3_COST="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+
+R3="$(_vpad "$_R3_PREFIX" "$COL_PREFIX")${SEP}"
+R3="${R3}$(_vpad "$_R3_TOKEN" "$COL_TOKEN")${SEP}"
+R3="${R3}$(_vpad "$_R3_MSG" "$COL_MSG")${SEP}"
+R3="${R3}$(_vpad "$_R3_TIME" "$COL_TIME")${SEP}"
+R3="${R3}$(_vpad "$_R3_COST" "$COL_COST")"
 [ -n "$LINES" ] && R3="${R3}${SEP}${CYAN}code${RST} ${LINES}"
-# Burn rate
 [ -n "$BURN_RATE" ] && R3="${R3}${SEP}${BURN_RATE}"
 printf '%b\n' "$R3"
 
@@ -674,23 +714,26 @@ fi
 
 if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   _TODAY_LABEL=$(date +%m-%d)
-  R4="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
-  R4="${R4} ${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
-  R4="${R4} ${DIM}(${RST}${CYAN}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
-  [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
-    R4="${R4} ${CYAN}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
-  R4="${R4} ${CYAN}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
-  R4="${R4} ${CYAN}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
-  # Message counts: user↑llm↓ format (matching session row style)
+  _R4_PREFIX="${CYAN}day-total${RST}${DIM}(${RST}${VAL}${_TODAY_LABEL}${RST}${DIM})${RST}"
+  _R4_TOKEN="${CYAN}token${RST} ${VAL}$(fmt_tok "$DAY_TOK")${RST}"
+  _R4_MSG=""
   if [ "${DAY_USER_MSGS:-0}" -gt 0 ] 2>/dev/null || [ "${DAY_LLM_MSGS:-0}" -gt 0 ] 2>/dev/null; then
-    R4="${R4}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "${DAY_USER_MSGS:-0}")↑$(fmt_tok "${DAY_LLM_MSGS:-0}")↓${RST}"
+    _R4_MSG="${CYAN}msg${RST} ${VAL}$(fmt_tok "${DAY_USER_MSGS:-0}")↑$(fmt_tok "${DAY_LLM_MSGS:-0}")↓${RST}"
   elif [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ]; then
-    R4="${R4}${SEP}${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
+    _R4_MSG="${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   fi
+  _R4_COST=""
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
-    R4="${R4}${SEP}${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
+    _R4_COST="${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
-  # Budget alert
+
+  R4="$(_vpad "$_R4_PREFIX" "$COL_PREFIX")${SEP}"
+  R4="${R4}$(_vpad "$_R4_TOKEN" "$COL_TOKEN")${SEP}"
+  R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
+  R4="${R4}$(_vpad "" "$COL_TIME")${SEP}"
+  R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
+
+  # Budget alert (appended after the cost column, like burn-rate on R3)
   if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
     _DAY_COST_RAW="${DAY_COST:-0}"
     if [ -n "$_DAY_COST_RAW" ] && [ "$_DAY_COST_RAW" != "0" ]; then
@@ -703,6 +746,14 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
     fi
   fi
   printf '%b\n' "$R4"
+
+  # Sub-row: token breakdown indented to the token column
+  _R4_BD="${DIM}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
+    _R4_BD="${_R4_BD}  ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
+  _R4_BD="${_R4_BD}  ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
+  _R4_BD="${_R4_BD}  ${DIM}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}"
+  printf '%b\n' "$(_vpad "" $((COL_PREFIX + 3)))${_R4_BD}"
 fi
 
 [ "$PRESET" = "full" ] && exit 0
