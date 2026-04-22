@@ -37,8 +37,10 @@ is_linux() { [ "$OS" = "Linux" ]; }
 # --- Terminal width detection ---
 COLS="${COLUMNS:-$(tput cols 2>/dev/null || echo 100)}"
 if [ "$COLS" -lt 70 ] 2>/dev/null; then TIER="compact"
-elif [ "$COLS" -lt 100 ] 2>/dev/null; then TIER="normal"
+elif [ "$COLS" -lt 95 ] 2>/dev/null; then TIER="normal"
 else TIER="wide"; fi
+# Allow forcing table-style alignment regardless of terminal width
+if [ "${CLAUDE_SL_FORCE_TABLE:-0}" = "1" ]; then TIER="wide"; fi
 
 # --- Determine preset ---
 PRESET="${CLAUDE_STATUSLINE_PRESET:-}"
