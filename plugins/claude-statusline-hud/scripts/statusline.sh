@@ -590,12 +590,13 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-# --- Assemble Row 3 (table-aligned with Row 4) ---
-# Column widths (shared with R4 below) — visible chars including label + value
+# --- Assemble Row 3 (table-aligned with Row 4 on wide terminals) ---
+# Column widths shared with R4 below — only used when TIER=wide so narrow
+# terminals don't wrap. Visible chars per cell (label + value).
 COL_PREFIX=18  # "session(abcdef12)" / "day-total(MM-DD)"
 COL_TOKEN=15   # "token 5.7M"
 COL_MSG=18     # "msg 12↑45↓ ⟳3"
-COL_TIME=24    # "time 5m 30s (api 80%)"
+COL_TIME=30    # "time 5m 30s (api 80%)" or R4's "(in X cache Y out Z)"
 COL_COST=14    # "cost $12.34"
 
 _R3_PREFIX="${CYAN}session${RST}"
@@ -613,11 +614,18 @@ fi
 _R3_TIME="${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 _R3_COST="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
 
-R3="$(_vpad "$_R3_PREFIX" "$COL_PREFIX")${SEP}"
-R3="${R3}$(_vpad "$_R3_TOKEN" "$COL_TOKEN")${SEP}"
-R3="${R3}$(_vpad "$_R3_MSG" "$COL_MSG")${SEP}"
-R3="${R3}$(_vpad "$_R3_TIME" "$COL_TIME")${SEP}"
-R3="${R3}$(_vpad "$_R3_COST" "$COL_COST")"
+if [ "$TIER" = "wide" ]; then
+  R3="$(_vpad "$_R3_PREFIX" "$COL_PREFIX")${SEP}"
+  R3="${R3}$(_vpad "$_R3_TOKEN" "$COL_TOKEN")${SEP}"
+  R3="${R3}$(_vpad "$_R3_MSG" "$COL_MSG")${SEP}"
+  R3="${R3}$(_vpad "$_R3_TIME" "$COL_TIME")${SEP}"
+  R3="${R3}$(_vpad "$_R3_COST" "$COL_COST")"
+else
+  R3="$_R3_PREFIX"
+  [ -n "$_R3_TOKEN" ] && R3="${R3} ${_R3_TOKEN}"
+  [ -n "$_R3_MSG" ] && R3="${R3}${SEP}${_R3_MSG}"
+  R3="${R3}${SEP}${_R3_TIME}${SEP}${_R3_COST}"
+fi
 [ -n "$LINES" ] && R3="${R3}${SEP}${CYAN}code${RST} ${LINES}"
 [ -n "$BURN_RATE" ] && R3="${R3}${SEP}${BURN_RATE}"
 printf '%b\n' "$R3"
@@ -722,16 +730,29 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   elif [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ]; then
     _R4_MSG="${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   fi
+  # Token breakdown (in/create/cache/out) — placed in the time column slot
+  # so the cost column still aligns with R3.
+  _R4_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
+  [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
+    _R4_BD="${_R4_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
+  _R4_BD="${_R4_BD} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
+  _R4_BD="${_R4_BD} ${DIM}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
   _R4_COST=""
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
     _R4_COST="${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
 
-  R4="$(_vpad "$_R4_PREFIX" "$COL_PREFIX")${SEP}"
-  R4="${R4}$(_vpad "$_R4_TOKEN" "$COL_TOKEN")${SEP}"
-  R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
-  R4="${R4}$(_vpad "" "$COL_TIME")${SEP}"
-  R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
+  if [ "$TIER" = "wide" ]; then
+    R4="$(_vpad "$_R4_PREFIX" "$COL_PREFIX")${SEP}"
+    R4="${R4}$(_vpad "$_R4_TOKEN" "$COL_TOKEN")${SEP}"
+    R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
+    R4="${R4}$(_vpad "$_R4_BD" "$COL_TIME")${SEP}"
+    R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
+  else
+    R4="$_R4_PREFIX ${_R4_TOKEN} ${_R4_BD}"
+    [ -n "$_R4_MSG" ] && R4="${R4}${SEP}${_R4_MSG}"
+    [ -n "$_R4_COST" ] && R4="${R4}${SEP}${_R4_COST}"
+  fi
 
   # Budget alert (appended after the cost column, like burn-rate on R3)
   if [ -n "$CLAUDE_SL_DAILY_BUDGET" ] && [ "$CLAUDE_SL_DAILY_BUDGET" != "0" ]; then
@@ -746,14 +767,6 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
     fi
   fi
   printf '%b\n' "$R4"
-
-  # Sub-row: token breakdown indented to the token column
-  _R4_BD="${DIM}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
-  [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
-    _R4_BD="${_R4_BD}  ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
-  _R4_BD="${_R4_BD}  ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
-  _R4_BD="${_R4_BD}  ${DIM}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}"
-  printf '%b\n' "$(_vpad "" $((COL_PREFIX + 3)))${_R4_BD}"
 fi
 
 [ "$PRESET" = "full" ] && exit 0
