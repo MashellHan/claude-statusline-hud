@@ -458,12 +458,38 @@ if [ "$TOTAL_INPUT" -gt 0 ]; then
   CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
 fi
 
-# Throughput (session-level average) — based on streaming time, not wall-clock
+# Per-turn throughput: last assistant message's output_tokens / its streaming gap.
+# Falls back to session-level THROUGHPUT below if transcript is unavailable.
+TURN_SPEED=""
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+  _T_SPEED=$(tail -40 "$TRANSCRIPT" 2>/dev/null | jq -rs '
+    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    [.[] | select(.timestamp != null) |
+      {ts: .timestamp, t: .type, o: (.message.usage.output_tokens // 0)}]
+    | . as $m
+    | [range(0; length) as $i |
+        select($m[$i].t == "assistant" and $i > 0) |
+        {dt: (($m[$i].ts | epoch) - ($m[$i-1].ts | epoch)), o: $m[$i].o}
+      ]
+    | map(select(.dt >= 0 and .dt < 600))
+    | (.[-1].dt // 0 | tostring) + " " + (.[-1].o // 0 | tostring)
+  ' 2>/dev/null)
+  _TT_SEC=$(printf '%s' "$_T_SPEED" | awk '{printf "%.0f", $1+0}')
+  _TT_OUT=$(printf '%s' "$_T_SPEED" | awk '{printf "%.0f", $2+0}')
+  if [ "${_TT_SEC:-0}" -gt 0 ] 2>/dev/null && [ "${_TT_OUT:-0}" -gt 0 ] 2>/dev/null; then
+    _TT_TPM=$((_TT_OUT * 60 / _TT_SEC))
+    TURN_SPEED="${CYAN}speed${RST} ${VAL}$(fmt_tok "$_TT_TPM")/min${RST}"
+  fi
+fi
+
+# Session-level throughput — based on streaming time, not wall-clock
 THROUGHPUT=""
 if [ "$API_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / API_MS))
   THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
+# If no per-turn data (e.g. no transcript), fall back to session avg for turn row
+[ -z "$TURN_SPEED" ] && TURN_SPEED="$THROUGHPUT"
 
 # Rate limit indicator
 RL_DISPLAY=""
@@ -563,11 +589,11 @@ if [ "$TIER" = "wide" ]; then
     R2="${R2}$(_vpad "$_R2_MSG"   "$COL_MSG")${SEP}"
     R2="${R2}$(_vpad "$_R2_TIME"  "$COL_TIME")${SEP}"
     R2="${R2}$(_vpad "$_R2_COST"  "$COL_COST")"
-    [ -n "$THROUGHPUT" ] && R2="${R2}${SEP}${THROUGHPUT}"
+    [ -n "$TURN_SPEED" ] && R2="${R2}${SEP}${TURN_SPEED}"
   fi
 else
   [ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
-  [ -n "$THROUGHPUT" ] && [ -n "$R2" ] && R2="${R2}${SEP}${THROUGHPUT}"
+  [ -n "$TURN_SPEED" ] && [ -n "$R2" ] && R2="${R2}${SEP}${TURN_SPEED}"
 fi
 if [ -n "$R2" ]; then
   printf '%b\n' "$R2"
