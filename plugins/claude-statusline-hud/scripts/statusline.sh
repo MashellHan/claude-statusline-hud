@@ -768,8 +768,8 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   elif [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ]; then
     _R4_MSG="${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   fi
-  # Token breakdown (in/create/cache/out) — placed in the time column slot
-  # so the cost column still aligns with R3.
+  # Token breakdown (in/create/cache/out) — appended after cost (like burn-rate
+  # on R3). Keeps R3/R4 column layout identical: prefix|token|msg|time|cost.
   _R4_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
   [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
     _R4_BD="${_R4_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
@@ -784,8 +784,9 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
     R4="$(_vpad "$_R4_PREFIX" "$COL_PREFIX")${SEP}"
     R4="${R4}$(_vpad "$_R4_TOKEN" "$COL_TOKEN")${SEP}"
     R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
-    R4="${R4}$(_vpad "$_R4_BD" "$COL_TIME")${SEP}"
+    R4="${R4}$(_vpad "" "$COL_TIME")${SEP}"
     R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
+    R4="${R4}${SEP}${_R4_BD}"
   else
     R4="$_R4_PREFIX ${_R4_TOKEN} ${_R4_BD}"
     [ -n "$_R4_MSG" ] && R4="${R4}${SEP}${_R4_MSG}"
@@ -891,7 +892,7 @@ fi
 
 if [ "$TIER" = "wide" ]; then
   # Table-aligned: prefix=vitals, token=cpu, msg=mem, time=gpu+disk(+bat), cost=load
-  _R5_PREFIX="${CYAN}vitals${RST}"
+  _R5_PREFIX="${CYAN}htop${RST}"
   _R5_TIME="$_R5_GPU"
   [ -n "$_R5_DISK" ] && _R5_TIME="${_R5_TIME} ${_R5_DISK}"
   [ -n "$_R5_BAT" ]  && _R5_TIME="${_R5_TIME} ${_R5_BAT}"
