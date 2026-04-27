@@ -428,9 +428,8 @@ if [ "$TIER" = "compact" ]; then
 else
   R1="${R1}${SEP}${CYAN}context${RST} ${CTX_CLR}${CTX_BAR}${RST} ${CTX_LABEL}${CTX_WARN}"
 fi
-printf '%b\n' "$R1"
-
-[ "$PRESET" = "minimal" ] && exit 0
+# (R1 print is deferred until after R2 precompute, so tools/cache/speed/rl
+#  can be appended to it.)
 
 # =============================================================
 # ROW 2: Turn-level — per-turn tokens │ cache │ speed │ tools  [ESSENTIAL+]
@@ -536,40 +535,38 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   fi
 fi
 
+# --- Append turn-status extras to Row 1 (tools, cache hit, speed, rl) ---
+if [ "$PRESET" != "minimal" ] && [ "$TIER" != "compact" ]; then
+  [ -n "$CACHE_HIT" ]   && R1="${R1}${SEP}${CACHE_HIT}"
+  [ -n "$THROUGHPUT" ]  && R1="${R1}${SEP}${THROUGHPUT}"
+  [ -n "$RL_DISPLAY" ]  && R1="${R1}${SEP}${RL_DISPLAY}"
+  [ -n "$ACTIVITY_LINE" ] && R1="${R1}${SEP}${CYAN}tools${RST} ${ACTIVITY_LINE}"
+fi
+printf '%b\n' "$R1"
+
+[ "$PRESET" = "minimal" ] && exit 0
+
 # --- Assemble Row 2 ---
 R2=""
 if [ "$TIER" = "wide" ]; then
   # Table-aligned with R3/R4: identical column labels (token|msg|time|cost).
-  # Turn-specific extras (cache%, speed, rl, tools) trail after cost.
+  # All extras (cache%, speed, rl, tools) moved to Row 1 — turn row stays clean.
   _R2_PREFIX="${CYAN}turn${RST}"
   _R2_TOKEN="$TURN_TOK_INNER"
-  _R2_MSG=""   # no per-turn msg concept
-  _R2_TIME=""  # no per-turn time concept
-  _R2_COST=""  # no per-turn cost
-  _R2_TRAIL=""
-  [ -n "$CACHE_HIT" ]   && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL} }${CACHE_HIT}"
-  [ -n "$THROUGHPUT" ]  && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${THROUGHPUT}"
-  [ -n "$RL_DISPLAY" ]  && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${RL_DISPLAY}"
-  [ -n "$ACTIVITY_LINE" ] && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
+  _DASH="${DIM}—${RST}"
+  _R2_MSG="${CYAN}msg${RST} ${_DASH}"
+  _R2_TIME="${CYAN}time${RST} ${_DASH}"
+  _R2_COST="${CYAN}cost${RST} ${_DASH}"
 
-  if [ -n "$_R2_TOKEN$_R2_TRAIL" ]; then
+  if [ -n "$_R2_TOKEN" ]; then
     R2="$(_vpad "$_R2_PREFIX" "$COL_PREFIX")${SEP}"
     R2="${R2}$(_vpad "$_R2_TOKEN" "$COL_TOKEN")${SEP}"
     R2="${R2}$(_vpad "$_R2_MSG"   "$COL_MSG")${SEP}"
     R2="${R2}$(_vpad "$_R2_TIME"  "$COL_TIME")${SEP}"
     R2="${R2}$(_vpad "$_R2_COST"  "$COL_COST")"
-    [ -n "$_R2_TRAIL" ] && R2="${R2}${SEP}${_R2_TRAIL}"
   fi
 else
   [ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
-  if [ "$TIER" != "compact" ]; then
-    [ -n "$CACHE_HIT" ] && R2="${R2:+${R2}${SEP}}${CACHE_HIT}"
-    [ -n "$THROUGHPUT" ] && R2="${R2:+${R2}${SEP}}${THROUGHPUT}"
-  fi
-  [ -n "$RL_DISPLAY" ] && R2="${R2:+${R2}${SEP}}${RL_DISPLAY}"
-  if [ -n "$ACTIVITY_LINE" ]; then
-    R2="${R2:+${R2}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
-  fi
 fi
 if [ -n "$R2" ]; then
   printf '%b\n' "$R2"
@@ -750,6 +747,22 @@ else
         tokens: (map(.i + .o + .cc + .cr) | add // 0),
         messages: length
       }' 2>/dev/null)
+    # Approximate today's API/streaming duration: sum of (assistant_ts - prior_msg_ts)
+    # across each transcript file. Per-file pass to keep timestamps ordered correctly.
+    _DAY_API_SEC=0
+    while IFS= read -r -d '' _F; do
+      _F_SEC=$(jq -rs --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+        [.[] | select(.timestamp != null and .timestamp >= $start and .timestamp < $end)
+              | {ts: .timestamp, t: .type}]
+        | . as $msgs
+        | [range(0; length) as $i |
+            select($msgs[$i].t == "assistant" and $i > 0) |
+            (($msgs[$i].ts | fromdateiso8601) - ($msgs[$i-1].ts | fromdateiso8601))
+          ] | map(select(. >= 0 and . < 600)) | add // 0' \
+        "$_F" 2>/dev/null)
+      _DAY_API_SEC=$(awk -v a="$_DAY_API_SEC" -v b="${_F_SEC:-0}" 'BEGIN{printf "%.0f", a+b}')
+    done < <(find "$_PROJECTS_DIR" -name "*.jsonl" -type f -print0 2>/dev/null)
+    DAY_API_MS=$((_DAY_API_SEC * 1000))
     # Count user↑ / assistant↓ messages across all today's transcripts
     _DAY_MSG_COUNTS=$(find "$_PROJECTS_DIR" -name "*.jsonl" \
       -type f -print0 2>/dev/null | \
@@ -784,8 +797,8 @@ else
     else
       DAY_COST=""
     fi
-    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_CREATE='%s'\nDAY_CACHE_TOK='%s'\nDAY_USER_MSGS='%s'\nDAY_LLM_MSGS='%s'\n" \
-      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_CREATE" "$DAY_CACHE_TOK" "$DAY_USER_MSGS" "$DAY_LLM_MSGS" > "$DAILY_CACHE"
+    printf "DAY_TOK='%s'\nDAY_SESSIONS='%s'\nDAY_COST='%s'\nDAY_INPUT='%s'\nDAY_OUTPUT='%s'\nDAY_CACHE_CREATE='%s'\nDAY_CACHE_TOK='%s'\nDAY_USER_MSGS='%s'\nDAY_LLM_MSGS='%s'\nDAY_API_MS='%s'\n" \
+      "$DAY_TOK" "$DAY_SESSIONS" "$DAY_COST" "$DAY_INPUT" "$DAY_OUTPUT" "$DAY_CACHE_CREATE" "$DAY_CACHE_TOK" "$DAY_USER_MSGS" "$DAY_LLM_MSGS" "$DAY_API_MS" > "$DAILY_CACHE"
   fi
 fi
 
@@ -811,17 +824,32 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
     _R4_COST="${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
   fi
+  # Day time = total streaming time today (approx, from inter-message gaps)
+  _R4_TIME=""
+  if [ "${DAY_API_MS:-0}" -gt 0 ] 2>/dev/null; then
+    _R4_TIME="${CYAN}time${RST} ${VAL}$(fmt_dur "${DAY_API_MS:-0}")${RST}"
+  fi
+  # Day burn rate ($/hr) — same formula as session: cost / streaming hours
+  _R4_BURN=""
+  if [ "${DAY_API_MS:-0}" -gt 60000 ] 2>/dev/null && [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
+    _DAY_BURN_HR=$(awk -v d="${DAY_API_MS:-0}" -v c="${DAY_COST:-0}" \
+      'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
+    _R4_BURN="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${_DAY_BURN_HR}/hr${RST}"
+  fi
 
   if [ "$TIER" = "wide" ]; then
     R4="$(_vpad "$_R4_PREFIX" "$COL_PREFIX")${SEP}"
     R4="${R4}$(_vpad "$_R4_TOKEN" "$COL_TOKEN")${SEP}"
     R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
-    R4="${R4}$(_vpad "" "$COL_TIME")${SEP}"
+    R4="${R4}$(_vpad "$_R4_TIME" "$COL_TIME")${SEP}"
     R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
+    [ -n "$_R4_BURN" ] && R4="${R4}${SEP}${_R4_BURN}"
   else
     R4="$_R4_PREFIX ${_R4_TOKEN}"
     [ -n "$_R4_MSG" ] && R4="${R4}${SEP}${_R4_MSG}"
+    [ -n "$_R4_TIME" ] && R4="${R4}${SEP}${_R4_TIME}"
     [ -n "$_R4_COST" ] && R4="${R4}${SEP}${_R4_COST}"
+    [ -n "$_R4_BURN" ] && R4="${R4}${SEP}${_R4_BURN}"
   fi
 
   # Budget alert (appended after the cost column, like burn-rate on R3)

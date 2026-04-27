@@ -24,7 +24,7 @@ assert_not_contains "$STATUSLINE_PLAIN" "cost" "minimal does NOT show cost row"
 run_fixture "minimal" "essential" 120
 assert_line_count_range "$STATUSLINE_PLAIN" 1 3 "essential preset outputs 1-3 rows"
 assert_contains "$STATUSLINE_PLAIN" "context" "essential shows context on Row 1"
-assert_not_contains "$STATUSLINE_PLAIN" "cost" "essential does NOT show cost row"
+assert_not_contains "$STATUSLINE_PLAIN" "session" "essential does NOT show session row"
 assert_not_contains "$STATUSLINE_PLAIN" "cpu" "essential does NOT show vitals"
 
 # --- full: 2-5 rows (Row 1 + Turn + Session + Daily, optionally token breakdown) ---
