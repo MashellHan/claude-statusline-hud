@@ -55,7 +55,7 @@ if [ "${CLAUDE_SL_FORCE_TABLE:-0}" = "1" ]; then TIER="wide"; fi
 
 # --- Shared column widths for table-aligned rows (R2/R3/R4/R5 in wide tier) ---
 COL_PREFIX=18
-COL_TOKEN=22
+COL_TOKEN=50  # fits "token 391M (in 319M create 5M cache 63M out 1M)"
 COL_MSG=18
 COL_TIME=28
 COL_COST=14
@@ -440,11 +440,14 @@ printf '%b\n' "$R1"
 TURN_DISPLAY=""
 TURN_TOK_INNER=""  # content without "turn " prefix, for table mode
 if [ "$INPUT_TOK" -gt 0 ] 2>/dev/null || [ "$CACHE_READ" -gt 0 ] 2>/dev/null; then
-  TURN_TOK_INNER="${DIM}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST}"
-  [ "$CACHE_READ" -gt 0 ] 2>/dev/null && TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
+  _TURN_TOTAL=$((INPUT_TOK + CACHE_READ + CACHE_CREATE + TOTAL_OUT))
+  _TURN_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST}"
+  [ "$CACHE_READ" -gt 0 ] 2>/dev/null && _TURN_BD="${_TURN_BD} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
   [ "$TIER" = "wide" ] && [ "$CACHE_CREATE" -gt 0 ] 2>/dev/null && \
-    TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
-  [ "$TOTAL_OUT" -gt 0 ] 2>/dev/null && TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}"
+    _TURN_BD="${_TURN_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
+  [ "$TOTAL_OUT" -gt 0 ] 2>/dev/null && _TURN_BD="${_TURN_BD} ${DIM}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}"
+  _TURN_BD="${_TURN_BD}${DIM})${RST}"
+  TURN_TOK_INNER="${CYAN}token${RST} ${VAL}$(fmt_tok $_TURN_TOTAL)${RST} ${_TURN_BD}"
   TURN_DISPLAY="${CYAN}turn${RST} ${TURN_TOK_INNER}"
 fi
 
@@ -669,9 +672,8 @@ if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/
 fi
 _R3_TIME="${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 _R3_COST="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
-# Session token breakdown (in/create/cache/out) — appended after cost,
-# matches R4 day-total layout for column alignment.
-_R3_BD=""
+# Session token breakdown (in/create/cache/out) — appended INSIDE the token
+# column so it stays grouped with the total. Matches R4 day-total layout.
 if [ "${SESS_INPUT:-0}" -gt 0 ] 2>/dev/null || [ "${SESS_OUTPUT:-0}" -gt 0 ] 2>/dev/null \
    || [ "${SESS_CACHE_READ:-0}" -gt 0 ] 2>/dev/null; then
   _R3_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok "${SESS_INPUT:-0}")${RST}"
@@ -679,6 +681,7 @@ if [ "${SESS_INPUT:-0}" -gt 0 ] 2>/dev/null || [ "${SESS_OUTPUT:-0}" -gt 0 ] 2>/
     _R3_BD="${_R3_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${SESS_CACHE_CREATE:-0}")${RST}"
   _R3_BD="${_R3_BD} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${SESS_CACHE_READ:-0}")${RST}"
   _R3_BD="${_R3_BD} ${DIM}out${RST} ${VAL}$(fmt_tok "${SESS_OUTPUT:-0}")${RST}${DIM})${RST}"
+  [ -n "$_R3_TOKEN" ] && _R3_TOKEN="${_R3_TOKEN} ${_R3_BD}" || _R3_TOKEN="$_R3_BD"
 fi
 
 if [ "$TIER" = "wide" ]; then
@@ -687,7 +690,6 @@ if [ "$TIER" = "wide" ]; then
   R3="${R3}$(_vpad "$_R3_MSG" "$COL_MSG")${SEP}"
   R3="${R3}$(_vpad "$_R3_TIME" "$COL_TIME")${SEP}"
   R3="${R3}$(_vpad "$_R3_COST" "$COL_COST")"
-  [ -n "$_R3_BD" ] && R3="${R3}${SEP}${_R3_BD}"
 else
   R3="$_R3_PREFIX"
   [ -n "$_R3_TOKEN" ] && R3="${R3} ${_R3_TOKEN}"
@@ -798,13 +800,14 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
   elif [ -n "$DAY_SESSIONS" ] && [ "$DAY_SESSIONS" != "0" ]; then
     _R4_MSG="${CYAN}msg${RST} ${VAL}$(fmt_tok "$DAY_SESSIONS")${RST}"
   fi
-  # Token breakdown (in/create/cache/out) — appended after cost (like burn-rate
-  # on R3). Keeps R3/R4 column layout identical: prefix|token|msg|time|cost.
+  # Token breakdown (in/create/cache/out) — merged INTO the token column
+  # (right after the total) so it stays grouped, matching R3 session row.
   _R4_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok "${DAY_INPUT:-0}")${RST}"
   [ "${DAY_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
     _R4_BD="${_R4_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${DAY_CACHE_CREATE:-0}")${RST}"
   _R4_BD="${_R4_BD} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${DAY_CACHE_TOK:-0}")${RST}"
   _R4_BD="${_R4_BD} ${DIM}out${RST} ${VAL}$(fmt_tok "${DAY_OUTPUT:-0}")${RST}${DIM})${RST}"
+  [ -n "$_R4_TOKEN" ] && _R4_TOKEN="${_R4_TOKEN} ${_R4_BD}" || _R4_TOKEN="$_R4_BD"
   _R4_COST=""
   if [ -n "$DAY_COST" ] && [ "$DAY_COST" != "0" ]; then
     _R4_COST="${CYAN}cost${RST} ${VAL}$(fmt_cost "$DAY_COST")${RST}"
@@ -816,9 +819,8 @@ if [ -n "$DAY_TOK" ] && [ "$DAY_TOK" != "0" ] && [ "$TIER" != "compact" ]; then
     R4="${R4}$(_vpad "$_R4_MSG" "$COL_MSG")${SEP}"
     R4="${R4}$(_vpad "" "$COL_TIME")${SEP}"
     R4="${R4}$(_vpad "$_R4_COST" "$COL_COST")"
-    R4="${R4}${SEP}${_R4_BD}"
   else
-    R4="$_R4_PREFIX ${_R4_TOKEN} ${_R4_BD}"
+    R4="$_R4_PREFIX ${_R4_TOKEN}"
     [ -n "$_R4_MSG" ] && R4="${R4}${SEP}${_R4_MSG}"
     [ -n "$_R4_COST" ] && R4="${R4}${SEP}${_R4_COST}"
   fi
