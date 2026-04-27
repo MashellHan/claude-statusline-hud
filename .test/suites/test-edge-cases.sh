@@ -60,7 +60,7 @@ assert_not_contains "$STATUSLINE_PLAIN" "code" "zero values hide code section"
 
 run_fixture "edge-extreme" "full" 120
 assert_contains "$STATUSLINE_PLAIN" '$999.99' "extreme cost formatted correctly"
-assert_contains "$STATUSLINE_PLAIN" "24h" "extreme duration = 86400000ms = 24h"
+assert_contains "$STATUSLINE_PLAIN" "13h" "extreme API duration = 50000000ms = 13h 53m"
 
 # ================================================================
 # exceeds_200k_tokens flag

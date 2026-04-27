@@ -34,13 +34,13 @@ assert_equals "0" "$PLAIN_LINES2" "PCT=85 compact does NOT show token breakdown"
 # Burn rate: shown when DURATION_MS > 60000 AND SESSION_TOKENS > 0
 # ================================================================
 
-run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":120000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":120000,"total_api_duration_ms":120000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "/hr" "burn rate shows $/hr when duration > 60s"
 
-run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":60000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":60000,"total_api_duration_ms":60000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
 assert_not_contains "$STATUSLINE_PLAIN" "/hr" "burn rate hidden when duration <= 60s"
 
-run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":120000},"context_window":{"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"total_output_tokens":0}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_cost_usd":2.0,"total_duration_ms":120000,"total_api_duration_ms":120000},"context_window":{"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"total_output_tokens":0}}')" "full" 120
 assert_not_contains "$STATUSLINE_PLAIN" "/hr" "burn rate hidden when no tokens"
 
 # ================================================================
@@ -75,19 +75,15 @@ run_statusline "$(make_json '{"cost":{"total_duration_ms":300000},"context_windo
 assert_contains "$STATUSLINE_PLAIN" "speed" "throughput shown when duration & output > 0"
 assert_contains "$STATUSLINE_PLAIN" "/min" "throughput shows /min unit"
 
-run_statusline "$(make_json '{"cost":{"total_duration_ms":0},"context_window":{"total_output_tokens":15000}}')" "essential" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":0,"total_api_duration_ms":0},"context_window":{"total_output_tokens":15000}}')" "essential" 120
 assert_not_contains "$STATUSLINE_PLAIN" "speed" "throughput hidden when duration = 0"
 
 run_statusline "$(make_json '{"cost":{"total_duration_ms":300000},"context_window":{"total_output_tokens":0}}')" "essential" 120
 assert_not_contains "$STATUSLINE_PLAIN" "speed" "throughput hidden when output = 0"
 
 # ================================================================
-# API efficiency
+# (API efficiency suffix removed — time = API_MS directly now.)
 # ================================================================
-
-run_statusline "$(make_json '{"cost":{"total_duration_ms":300000,"total_api_duration_ms":180000}}')" "full" 120
-assert_contains "$STATUSLINE_PLAIN" "api" "API efficiency shown"
-assert_contains "$STATUSLINE_PLAIN" "60%" "API efficiency = 180000/300000 = 60%"
 
 # ================================================================
 # Turn-level display on essential preset (Row 2)

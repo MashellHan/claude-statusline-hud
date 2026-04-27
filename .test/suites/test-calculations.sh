@@ -52,40 +52,33 @@ CACHE_LINES=$(printf '%s' "$STATUSLINE_PLAIN" | grep -c "cache" || true)
 assert_contains "$STATUSLINE_PLAIN" "context" "zero cache inputs still shows context"
 
 # ================================================================
-# Throughput: TPM = TOTAL_OUT * 60000 / DURATION_MS
+# Throughput: TPM = TOTAL_OUT * 60000 / API_MS  (streaming time)
 # ================================================================
 
 # 15000 * 60000 / 300000 = 3000 → "3k/min"
-run_statusline "$(make_json '{"cost":{"total_duration_ms":300000},"context_window":{"total_output_tokens":15000}}')" "essential" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":300000,"total_api_duration_ms":300000},"context_window":{"total_output_tokens":15000}}')" "essential" 120
 assert_contains "$STATUSLINE_PLAIN" "3k/min" "throughput: 15k out / 5min = 3k/min"
 
 # 60000 * 60000 / 60000 = 60000 → "60k/min"
-run_statusline "$(make_json '{"cost":{"total_duration_ms":60000},"context_window":{"total_output_tokens":60000}}')" "essential" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":60000,"total_api_duration_ms":60000},"context_window":{"total_output_tokens":60000}}')" "essential" 120
 assert_contains "$STATUSLINE_PLAIN" "60k/min" "throughput: 60k out / 1min = 60k/min"
 
 # ================================================================
-# BURN_RATE = COST / (DURATION_MS / 3600000)
+# BURN_RATE = COST / (API_MS / 3600000)  (streaming time)
 # ================================================================
 
 # $3.60 / (3600000 / 3600000) = $3.60/hr
-run_statusline "$(make_json '{"cost":{"total_cost_usd":3.60,"total_duration_ms":3600000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_cost_usd":3.60,"total_duration_ms":3600000,"total_api_duration_ms":3600000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" '3.60/hr' "burn rate: \$3.60 / 1hr = \$3.60/hr"
 
 # $1.00 / (1800000 / 3600000) = $1.00 / 0.5 = $2.00/hr
-run_statusline "$(make_json '{"cost":{"total_cost_usd":1.0,"total_duration_ms":1800000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_cost_usd":1.0,"total_duration_ms":1800000,"total_api_duration_ms":1800000},"context_window":{"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":5000,"cache_read_input_tokens":10000},"total_output_tokens":10000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" '2.00/hr' "burn rate: \$1.00 / 0.5hr = \$2.00/hr"
 
 # ================================================================
-# API_PCT = API_MS * 100 / DURATION_MS
+# (API efficiency suffix removed — time now shows API_MS directly,
+#  no separate api% indicator needed.)
 # ================================================================
-
-# 180000 * 100 / 300000 = 60%
-run_statusline "$(make_json '{"cost":{"total_duration_ms":300000,"total_api_duration_ms":180000}}')" "full" 120
-assert_contains "$STATUSLINE_PLAIN" "60%" "API efficiency: 180k/300k = 60%"
-
-# 300000 * 100 / 300000 = 100%
-run_statusline "$(make_json '{"cost":{"total_duration_ms":300000,"total_api_duration_ms":300000}}')" "full" 120
-assert_contains "$STATUSLINE_PLAIN" "100%" "API efficiency: 300k/300k = 100%"
 
 # ================================================================
 # ADJ_PCT calculation (context pressure inflation)

@@ -459,10 +459,10 @@ if [ "$TOTAL_INPUT" -gt 0 ]; then
   CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
 fi
 
-# Throughput (session-level average)
+# Throughput (session-level average) — based on streaming time, not wall-clock
 THROUGHPUT=""
-if [ "$DURATION_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
-  TPM=$((TOTAL_OUT * 60000 / DURATION_MS))
+if [ "$API_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
+  TPM=$((TOTAL_OUT * 60000 / API_MS))
   THROUGHPUT="${CYAN}speed${RST}${DIM}(sess)${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
@@ -539,24 +539,26 @@ fi
 # --- Assemble Row 2 ---
 R2=""
 if [ "$TIER" = "wide" ]; then
-  # Table-aligned: prefix=turn, token=in/cache/create/out, msg=cache hit, time=speed+rl, cost=tools(spans)
+  # Table-aligned with R3/R4: identical column labels (token|msg|time|cost).
+  # Turn-specific extras (cache%, speed, rl, tools) trail after cost.
   _R2_PREFIX="${CYAN}turn${RST}"
   _R2_TOKEN="$TURN_TOK_INNER"
-  _R2_MSG="$CACHE_HIT"
-  _R2_TIME=""
-  [ -n "$THROUGHPUT" ] && _R2_TIME="$THROUGHPUT"
-  if [ -n "$RL_DISPLAY" ]; then
-    [ -n "$_R2_TIME" ] && _R2_TIME="${_R2_TIME} ${RL_DISPLAY}" || _R2_TIME="$RL_DISPLAY"
-  fi
-  _R2_COST=""
-  [ -n "$ACTIVITY_LINE" ] && _R2_COST="${CYAN}tools${RST} ${ACTIVITY_LINE}"
+  _R2_MSG=""   # no per-turn msg concept
+  _R2_TIME=""  # no per-turn time concept
+  _R2_COST=""  # no per-turn cost
+  _R2_TRAIL=""
+  [ -n "$CACHE_HIT" ]   && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL} }${CACHE_HIT}"
+  [ -n "$THROUGHPUT" ]  && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${THROUGHPUT}"
+  [ -n "$RL_DISPLAY" ]  && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${RL_DISPLAY}"
+  [ -n "$ACTIVITY_LINE" ] && _R2_TRAIL="${_R2_TRAIL:+${_R2_TRAIL}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
 
-  if [ -n "$_R2_TOKEN$_R2_MSG$_R2_TIME$_R2_COST" ]; then
+  if [ -n "$_R2_TOKEN$_R2_TRAIL" ]; then
     R2="$(_vpad "$_R2_PREFIX" "$COL_PREFIX")${SEP}"
     R2="${R2}$(_vpad "$_R2_TOKEN" "$COL_TOKEN")${SEP}"
-    R2="${R2}$(_vpad "$_R2_MSG" "$COL_MSG")${SEP}"
-    R2="${R2}$(_vpad "$_R2_TIME" "$COL_TIME")${SEP}"
-    R2="${R2}${_R2_COST}"
+    R2="${R2}$(_vpad "$_R2_MSG"   "$COL_MSG")${SEP}"
+    R2="${R2}$(_vpad "$_R2_TIME"  "$COL_TIME")${SEP}"
+    R2="${R2}$(_vpad "$_R2_COST"  "$COL_COST")"
+    [ -n "$_R2_TRAIL" ] && R2="${R2}${SEP}${_R2_TRAIL}"
   fi
 else
   [ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
@@ -634,11 +636,8 @@ _TOK_HEADLINE=$SESSION_TOKENS
 [ "$CTX_TOKENS" -gt "$_TOK_HEADLINE" ] 2>/dev/null && _TOK_HEADLINE=$CTX_TOKENS
 
 COST_FMT=$(fmt_cost "$COST_RAW")
-DUR=$(fmt_dur "$DURATION_MS")
+DUR=$(fmt_dur "$API_MS")  # streaming/API time only, not session wall-clock
 EFF=""
-if [ "$DURATION_MS" -gt 0 ] && [ "$API_MS" -gt 0 ]; then
-  EFF=" (${CYAN}api${RST} ${VAL}$((API_MS * 100 / DURATION_MS))%${RST})"
-fi
 
 LINES=""
 if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
@@ -650,8 +649,8 @@ if [ "$LINES_ADD" -gt 0 ] || [ "$LINES_DEL" -gt 0 ]; then
 fi
 
 BURN_RATE=""
-if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
-  BURN_COST_HR=$(awk -v d="$DURATION_MS" -v c="$COST_RAW" 'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
+if [ "$API_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
+  BURN_COST_HR=$(awk -v d="$API_MS" -v c="$COST_RAW" 'BEGIN{dh=d/3600000; if(dh>0) printf "%.2f", c/dh; else print 0}')
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 

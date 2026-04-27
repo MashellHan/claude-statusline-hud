@@ -33,15 +33,15 @@ assert_contains "$STATUSLINE_PLAIN" "1M" "fmt_tok: ctx_tokens at 75% of 2M = 1.5
 # ================================================================
 
 # Seconds only
-run_statusline "$(make_json '{"cost":{"total_duration_ms":45000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":45000,"total_api_duration_ms":45000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "45s" "fmt_dur: 45000ms = 45s"
 
 # Minutes and seconds
-run_statusline "$(make_json '{"cost":{"total_duration_ms":125000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":125000,"total_api_duration_ms":125000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "2m 5s" "fmt_dur: 125000ms = 2m 5s"
 
 # Hours and minutes
-run_statusline "$(make_json '{"cost":{"total_duration_ms":3720000}}')" "full" 120
+run_statusline "$(make_json '{"cost":{"total_duration_ms":3720000,"total_api_duration_ms":3720000}}')" "full" 120
 assert_contains "$STATUSLINE_PLAIN" "1h 2m" "fmt_dur: 3720000ms = 1h 2m"
 
 # Zero duration
