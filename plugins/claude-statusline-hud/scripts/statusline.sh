@@ -586,6 +586,7 @@ fi
 
 # --- Session message & compact counts (from transcript, cached 10s) ---
 SESS_USER_MSGS=0 SESS_LLM_MSGS=0 SESS_COMPACTS=0
+SESS_INPUT=0 SESS_OUTPUT=0 SESS_CACHE_CREATE=0 SESS_CACHE_READ=0
 SESS_MSG_CACHE="${CACHE_DIR}/sessmsg_${_SID}.cache"
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if [ "$(file_age "$SESS_MSG_CACHE")" -lt 10 ] && [ -f "$SESS_MSG_CACHE" ]; then
@@ -601,8 +602,25 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     SESS_USER_MSGS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $1}')
     SESS_LLM_MSGS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $2}')
     SESS_COMPACTS=$(printf '%s' "$_SESS_COUNTS" | awk '{print $3}')
-    printf "SESS_USER_MSGS='%s'\nSESS_LLM_MSGS='%s'\nSESS_COMPACTS='%s'\n" \
-      "$SESS_USER_MSGS" "$SESS_LLM_MSGS" "$SESS_COMPACTS" > "$SESS_MSG_CACHE"
+    # Session token breakdown (cumulative across all turns in this transcript)
+    _SESS_TOK_BD=$(jq -s '
+      [.[] | .message.usage // empty] |
+      {i: (map(.input_tokens // 0) | add // 0),
+       o: (map(.output_tokens // 0) | add // 0),
+       cc: (map(.cache_creation_input_tokens // 0) | add // 0),
+       cr: (map(.cache_read_input_tokens // 0) | add // 0)}
+    ' "$TRANSCRIPT" 2>/dev/null)
+    eval "$(printf '%s' "$_SESS_TOK_BD" | jq -r '
+      @sh "SESS_INPUT=\(.i // 0)",
+      @sh "SESS_OUTPUT=\(.o // 0)",
+      @sh "SESS_CACHE_CREATE=\(.cc // 0)",
+      @sh "SESS_CACHE_READ=\(.cr // 0)"
+    ' 2>/dev/null)" 2>/dev/null || {
+      SESS_INPUT=0 SESS_OUTPUT=0 SESS_CACHE_CREATE=0 SESS_CACHE_READ=0
+    }
+    printf "SESS_USER_MSGS='%s'\nSESS_LLM_MSGS='%s'\nSESS_COMPACTS='%s'\nSESS_INPUT='%s'\nSESS_OUTPUT='%s'\nSESS_CACHE_CREATE='%s'\nSESS_CACHE_READ='%s'\n" \
+      "$SESS_USER_MSGS" "$SESS_LLM_MSGS" "$SESS_COMPACTS" \
+      "$SESS_INPUT" "$SESS_OUTPUT" "$SESS_CACHE_CREATE" "$SESS_CACHE_READ" > "$SESS_MSG_CACHE"
   fi
 fi
 
@@ -651,6 +669,17 @@ if [ "$SESS_USER_MSGS" -gt 0 ] 2>/dev/null || [ "$SESS_LLM_MSGS" -gt 0 ] 2>/dev/
 fi
 _R3_TIME="${CYAN}time${RST} ${VAL}${DUR}${RST}${EFF}"
 _R3_COST="${CYAN}cost${RST} ${VAL}${COST_FMT}${RST}"
+# Session token breakdown (in/create/cache/out) — appended after cost,
+# matches R4 day-total layout for column alignment.
+_R3_BD=""
+if [ "${SESS_INPUT:-0}" -gt 0 ] 2>/dev/null || [ "${SESS_OUTPUT:-0}" -gt 0 ] 2>/dev/null \
+   || [ "${SESS_CACHE_READ:-0}" -gt 0 ] 2>/dev/null; then
+  _R3_BD="${DIM}(${RST}${DIM}in${RST} ${VAL}$(fmt_tok "${SESS_INPUT:-0}")${RST}"
+  [ "${SESS_CACHE_CREATE:-0}" -gt 0 ] 2>/dev/null && \
+    _R3_BD="${_R3_BD} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok "${SESS_CACHE_CREATE:-0}")${RST}"
+  _R3_BD="${_R3_BD} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok "${SESS_CACHE_READ:-0}")${RST}"
+  _R3_BD="${_R3_BD} ${DIM}out${RST} ${VAL}$(fmt_tok "${SESS_OUTPUT:-0}")${RST}${DIM})${RST}"
+fi
 
 if [ "$TIER" = "wide" ]; then
   R3="$(_vpad "$_R3_PREFIX" "$COL_PREFIX")${SEP}"
@@ -658,6 +687,7 @@ if [ "$TIER" = "wide" ]; then
   R3="${R3}$(_vpad "$_R3_MSG" "$COL_MSG")${SEP}"
   R3="${R3}$(_vpad "$_R3_TIME" "$COL_TIME")${SEP}"
   R3="${R3}$(_vpad "$_R3_COST" "$COL_COST")"
+  [ -n "$_R3_BD" ] && R3="${R3}${SEP}${_R3_BD}"
 else
   R3="$_R3_PREFIX"
   [ -n "$_R3_TOKEN" ] && R3="${R3} ${_R3_TOKEN}"
