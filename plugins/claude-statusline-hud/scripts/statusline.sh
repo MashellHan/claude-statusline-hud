@@ -53,6 +53,13 @@ else TIER="wide"; fi
 # Allow forcing table-style alignment regardless of terminal width
 if [ "${CLAUDE_SL_FORCE_TABLE:-0}" = "1" ]; then TIER="wide"; fi
 
+# --- Shared column widths for table-aligned rows (R2/R3/R4/R5 in wide tier) ---
+COL_PREFIX=18
+COL_TOKEN=22
+COL_MSG=18
+COL_TIME=28
+COL_COST=14
+
 # --- Determine preset ---
 PRESET="${CLAUDE_STATUSLINE_PRESET:-}"
 if [ -z "$PRESET" ] && [ -f "$HOME/.claude/statusline-preset" ]; then
@@ -431,12 +438,14 @@ printf '%b\n' "$R1"
 
 # --- Precompute turn-level metrics ---
 TURN_DISPLAY=""
+TURN_TOK_INNER=""  # content without "turn " prefix, for table mode
 if [ "$INPUT_TOK" -gt 0 ] 2>/dev/null || [ "$CACHE_READ" -gt 0 ] 2>/dev/null; then
-  TURN_DISPLAY="${CYAN}turn${RST} ${DIM}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST}"
-  [ "$CACHE_READ" -gt 0 ] 2>/dev/null && TURN_DISPLAY="${TURN_DISPLAY} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
+  TURN_TOK_INNER="${DIM}in${RST} ${VAL}$(fmt_tok $INPUT_TOK)${RST}"
+  [ "$CACHE_READ" -gt 0 ] 2>/dev/null && TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}cache${RST} ${GREEN}${VAL}$(fmt_tok $CACHE_READ)${RST}"
   [ "$TIER" = "wide" ] && [ "$CACHE_CREATE" -gt 0 ] 2>/dev/null && \
-    TURN_DISPLAY="${TURN_DISPLAY} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
-  [ "$TOTAL_OUT" -gt 0 ] 2>/dev/null && TURN_DISPLAY="${TURN_DISPLAY} ${DIM}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}"
+    TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}create${RST} ${YELLOW}${VAL}$(fmt_tok $CACHE_CREATE)${RST}"
+  [ "$TOTAL_OUT" -gt 0 ] 2>/dev/null && TURN_TOK_INNER="${TURN_TOK_INNER} ${DIM}out${RST} ${VAL}$(fmt_tok $TOTAL_OUT)${RST}"
+  TURN_DISPLAY="${CYAN}turn${RST} ${TURN_TOK_INNER}"
 fi
 
 # Cache hit rate (per-turn)
@@ -526,14 +535,36 @@ fi
 
 # --- Assemble Row 2 ---
 R2=""
-[ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
-if [ "$TIER" != "compact" ]; then
-  [ -n "$CACHE_HIT" ] && R2="${R2:+${R2}${SEP}}${CACHE_HIT}"
-  [ -n "$THROUGHPUT" ] && R2="${R2:+${R2}${SEP}}${THROUGHPUT}"
-fi
-[ -n "$RL_DISPLAY" ] && R2="${R2:+${R2}${SEP}}${RL_DISPLAY}"
-if [ -n "$ACTIVITY_LINE" ]; then
-  R2="${R2:+${R2}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
+if [ "$TIER" = "wide" ]; then
+  # Table-aligned: prefix=turn, token=in/cache/create/out, msg=cache hit, time=speed+rl, cost=tools(spans)
+  _R2_PREFIX="${CYAN}turn${RST}"
+  _R2_TOKEN="$TURN_TOK_INNER"
+  _R2_MSG="$CACHE_HIT"
+  _R2_TIME=""
+  [ -n "$THROUGHPUT" ] && _R2_TIME="$THROUGHPUT"
+  if [ -n "$RL_DISPLAY" ]; then
+    [ -n "$_R2_TIME" ] && _R2_TIME="${_R2_TIME} ${RL_DISPLAY}" || _R2_TIME="$RL_DISPLAY"
+  fi
+  _R2_COST=""
+  [ -n "$ACTIVITY_LINE" ] && _R2_COST="${CYAN}tools${RST} ${ACTIVITY_LINE}"
+
+  if [ -n "$_R2_TOKEN$_R2_MSG$_R2_TIME$_R2_COST" ]; then
+    R2="$(_vpad "$_R2_PREFIX" "$COL_PREFIX")${SEP}"
+    R2="${R2}$(_vpad "$_R2_TOKEN" "$COL_TOKEN")${SEP}"
+    R2="${R2}$(_vpad "$_R2_MSG" "$COL_MSG")${SEP}"
+    R2="${R2}$(_vpad "$_R2_TIME" "$COL_TIME")${SEP}"
+    R2="${R2}${_R2_COST}"
+  fi
+else
+  [ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
+  if [ "$TIER" != "compact" ]; then
+    [ -n "$CACHE_HIT" ] && R2="${R2:+${R2}${SEP}}${CACHE_HIT}"
+    [ -n "$THROUGHPUT" ] && R2="${R2:+${R2}${SEP}}${THROUGHPUT}"
+  fi
+  [ -n "$RL_DISPLAY" ] && R2="${R2:+${R2}${SEP}}${RL_DISPLAY}"
+  if [ -n "$ACTIVITY_LINE" ]; then
+    R2="${R2:+${R2}${SEP}}${CYAN}tools${RST} ${ACTIVITY_LINE}"
+  fi
 fi
 if [ -n "$R2" ]; then
   printf '%b\n' "$R2"
@@ -603,14 +634,8 @@ if [ "$DURATION_MS" -gt 60000 ] && [ "$SESSION_TOKENS" -gt 0 ]; then
   BURN_RATE="${YELLOW}🔥${RST} ${DIM}≈${RST}${VAL}\$${BURN_COST_HR}/hr${RST}"
 fi
 
-# --- Assemble Row 3 (table-aligned with Row 4 on wide terminals) ---
-# Column widths shared with R4 below — only used when TIER=wide so narrow
-# terminals don't wrap. Visible chars per cell (label + value).
-COL_PREFIX=18  # "session(abcdef12)" / "day-total(MM-DD)"
-COL_TOKEN=15   # "token 5.7M"
-COL_MSG=18     # "msg 12↑45↓ ⟳3"
-COL_TIME=30    # "time 5m 30s (api 80%)" or R4's "(in X cache Y out Z)"
-COL_COST=14    # "cost $12.34"
+# --- Assemble Row 3 (table-aligned with R2/R4/R5 on wide terminals) ---
+# (Column widths COL_PREFIX/COL_TOKEN/COL_MSG/COL_TIME/COL_COST defined above.)
 
 _R3_PREFIX="${CYAN}session${RST}"
 if [ -n "$SESSION_ID" ]; then
@@ -846,18 +871,39 @@ else
     "${BV:-}" "${LOAD_AVG:-0}" > "$SYS_CACHE"
 fi
 
-R5="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${VAL}${CPU_USED:-0}%${RST}"
-R5="${R5}${SEP}${CYAN}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${VAL}${MEM_USED:-0M}${RST}/${MEM_TOTAL_GB:-0}G"
-R5="${R5}${SEP}${CYAN}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${VAL}${GPU_PCT:-0}%${RST}"
+_R5_CPU="${CYAN}cpu${RST} $(bar_color "${CPU_USED:-0}")$(mini_bar "${CPU_USED:-0}")${RST} ${VAL}${CPU_USED:-0}%${RST}"
+_R5_MEM="${CYAN}mem${RST} $(bar_color "${MEM_PCT:-0}")$(mini_bar "${MEM_PCT:-0}")${RST} ${VAL}${MEM_USED:-0M}${RST}/${MEM_TOTAL_GB:-0}G"
+_R5_GPU="${CYAN}gpu${RST} $(bar_color "${GPU_PCT:-0}")$(mini_bar "${GPU_PCT:-0}")${RST} ${VAL}${GPU_PCT:-0}%${RST}"
+_R5_DISK=""
+_R5_BAT=""
+_R5_LOAD=""
 if [ "$TIER" != "compact" ]; then
-  R5="${R5}${SEP}${CYAN}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${VAL}${DISK_USED:-0G}${RST}/${DISK_TOTAL:-0G}"
+  _R5_DISK="${CYAN}disk${RST} $(bar_color "${DISK_PCT:-0}")$(mini_bar "${DISK_PCT:-0}")${RST} ${VAL}${DISK_USED:-0G}${RST}/${DISK_TOTAL:-0G}"
   if [ -n "$BV" ]; then
     if [ "$BV" -le 20 ] 2>/dev/null; then
-      R5="${R5}${SEP}${CYAN}bat${RST} ${RED}${VAL}$(mini_bar "$BV")${RST} ${RED}${VAL}${BV}%${RST}"
+      _R5_BAT="${CYAN}bat${RST} ${RED}${VAL}$(mini_bar "$BV")${RST} ${RED}${VAL}${BV}%${RST}"
     else
-      R5="${R5}${SEP}${CYAN}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${VAL}${BV}%${RST}"
+      _R5_BAT="${CYAN}bat${RST} ${GREEN}$(mini_bar "$BV")${RST} ${VAL}${BV}%${RST}"
     fi
   fi
-  [ -n "$LOAD_AVG" ] && R5="${R5}${SEP}${CYAN}load${RST} ${VAL}${LOAD_AVG}${RST}"
+  [ -n "$LOAD_AVG" ] && _R5_LOAD="${CYAN}load${RST} ${VAL}${LOAD_AVG}${RST}"
+fi
+
+if [ "$TIER" = "wide" ]; then
+  # Table-aligned: prefix=vitals, token=cpu, msg=mem, time=gpu+disk(+bat), cost=load
+  _R5_PREFIX="${CYAN}vitals${RST}"
+  _R5_TIME="$_R5_GPU"
+  [ -n "$_R5_DISK" ] && _R5_TIME="${_R5_TIME} ${_R5_DISK}"
+  [ -n "$_R5_BAT" ]  && _R5_TIME="${_R5_TIME} ${_R5_BAT}"
+  R5="$(_vpad "$_R5_PREFIX" "$COL_PREFIX")${SEP}"
+  R5="${R5}$(_vpad "$_R5_CPU"  "$COL_TOKEN")${SEP}"
+  R5="${R5}$(_vpad "$_R5_MEM"  "$COL_MSG")${SEP}"
+  R5="${R5}$(_vpad "$_R5_TIME" "$COL_TIME")${SEP}"
+  R5="${R5}${_R5_LOAD}"
+else
+  R5="$_R5_CPU${SEP}${_R5_MEM}${SEP}${_R5_GPU}"
+  [ -n "$_R5_DISK" ] && R5="${R5}${SEP}${_R5_DISK}"
+  [ -n "$_R5_BAT" ]  && R5="${R5}${SEP}${_R5_BAT}"
+  [ -n "$_R5_LOAD" ] && R5="${R5}${SEP}${_R5_LOAD}"
 fi
 printf '%b\n' "$R5"
