@@ -462,7 +462,7 @@ fi
 THROUGHPUT=""
 if [ "$API_MS" -gt 0 ] && [ "$TOTAL_OUT" -gt 0 ]; then
   TPM=$((TOTAL_OUT * 60000 / API_MS))
-  THROUGHPUT="${CYAN}speed${RST}${DIM}(sess)${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
+  THROUGHPUT="${CYAN}speed${RST} ${VAL}$(fmt_tok "$TPM")/min${RST}"
 fi
 
 # Rate limit indicator
@@ -538,7 +538,6 @@ fi
 # --- Append turn-status extras to Row 1 (tools, cache hit, speed, rl) ---
 if [ "$PRESET" != "minimal" ] && [ "$TIER" != "compact" ]; then
   [ -n "$CACHE_HIT" ]   && R1="${R1}${SEP}${CACHE_HIT}"
-  [ -n "$THROUGHPUT" ]  && R1="${R1}${SEP}${THROUGHPUT}"
   [ -n "$RL_DISPLAY" ]  && R1="${R1}${SEP}${RL_DISPLAY}"
   [ -n "$ACTIVITY_LINE" ] && R1="${R1}${SEP}${CYAN}tools${RST} ${ACTIVITY_LINE}"
 fi
@@ -564,9 +563,11 @@ if [ "$TIER" = "wide" ]; then
     R2="${R2}$(_vpad "$_R2_MSG"   "$COL_MSG")${SEP}"
     R2="${R2}$(_vpad "$_R2_TIME"  "$COL_TIME")${SEP}"
     R2="${R2}$(_vpad "$_R2_COST"  "$COL_COST")"
+    [ -n "$THROUGHPUT" ] && R2="${R2}${SEP}${THROUGHPUT}"
   fi
 else
   [ -n "$TURN_DISPLAY" ] && R2="$TURN_DISPLAY"
+  [ -n "$THROUGHPUT" ] && [ -n "$R2" ] && R2="${R2}${SEP}${THROUGHPUT}"
 fi
 if [ -n "$R2" ]; then
   printf '%b\n' "$R2"
@@ -693,6 +694,7 @@ else
   R3="${R3}${SEP}${_R3_TIME}${SEP}${_R3_COST}"
 fi
 [ -n "$LINES" ] && R3="${R3}${SEP}${CYAN}code${RST} ${LINES}"
+[ -n "$THROUGHPUT" ] && R3="${R3}${SEP}${THROUGHPUT}"
 [ -n "$BURN_RATE" ] && R3="${R3}${SEP}${BURN_RATE}"
 printf '%b\n' "$R3"
 
@@ -752,12 +754,13 @@ else
     _DAY_API_SEC=0
     while IFS= read -r -d '' _F; do
       _F_SEC=$(jq -rs --arg start "$_TODAY_START_UTC" --arg end "$_TOMORROW_START_UTC" '
+        def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
         [.[] | select(.timestamp != null and .timestamp >= $start and .timestamp < $end)
               | {ts: .timestamp, t: .type}]
         | . as $msgs
         | [range(0; length) as $i |
             select($msgs[$i].t == "assistant" and $i > 0) |
-            (($msgs[$i].ts | fromdateiso8601) - ($msgs[$i-1].ts | fromdateiso8601))
+            (($msgs[$i].ts | epoch) - ($msgs[$i-1].ts | epoch))
           ] | map(select(. >= 0 and . < 600)) | add // 0' \
         "$_F" 2>/dev/null)
       _DAY_API_SEC=$(awk -v a="$_DAY_API_SEC" -v b="${_F_SEC:-0}" 'BEGIN{printf "%.0f", a+b}')
