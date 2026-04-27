@@ -35,7 +35,18 @@ is_mac() { [ "$OS" = "Darwin" ]; }
 is_linux() { [ "$OS" = "Linux" ]; }
 
 # --- Terminal width detection ---
-COLS="${COLUMNS:-$(tput cols 2>/dev/null || echo 100)}"
+# Try multiple sources: $COLUMNS often unset in statusline subprocess,
+# tput needs TERM, stty needs a tty on stdin/err. Pick the largest sane value.
+_w_env="${COLUMNS:-0}"
+_w_tput=$(tput cols 2>/dev/null || echo 0)
+_w_stty=$(stty size 2>/dev/null </dev/tty | awk '{print $2}')
+_w_stty="${_w_stty:-0}"
+COLS=0
+for _c in "$_w_env" "$_w_tput" "$_w_stty"; do
+  case "$_c" in ''|*[!0-9]*) continue ;; esac
+  [ "$_c" -gt "$COLS" ] 2>/dev/null && COLS="$_c"
+done
+[ "$COLS" -eq 0 ] 2>/dev/null && COLS=100
 if [ "$COLS" -lt 70 ] 2>/dev/null; then TIER="compact"
 elif [ "$COLS" -lt 95 ] 2>/dev/null; then TIER="normal"
 else TIER="wide"; fi
