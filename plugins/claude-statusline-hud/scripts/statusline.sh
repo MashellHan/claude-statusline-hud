@@ -458,27 +458,59 @@ if [ "$TOTAL_INPUT" -gt 0 ]; then
   CACHE_HIT="${CYAN}cache${RST} ${CC}${VAL}${CP}%${RST}"
 fi
 
-# Per-turn throughput: last assistant message's output_tokens / its streaming gap.
-# Falls back to session-level THROUGHPUT below if transcript is unavailable.
-TURN_SPEED=""
+# Per-turn metrics: extract from transcript tail.
+# - time:  total streaming time within the current turn (since last user msg)
+# - cost:  USD cost of token deltas in that turn (from pricing)
+# - msg:   1↑N↓ where N = assistant messages in the current turn
+# - speed: turn output_tokens / turn streaming time
+TURN_SPEED="" TURN_TIME="" TURN_COST="" TURN_MSG=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  _T_SPEED=$(tail -40 "$TRANSCRIPT" 2>/dev/null | jq -rs '
+  _T_DATA=$(tail -200 "$TRANSCRIPT" 2>/dev/null | jq -rs '
     def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
     [.[] | select(.timestamp != null) |
-      {ts: .timestamp, t: .type, o: (.message.usage.output_tokens // 0)}]
+      {ts: .timestamp, t: .type,
+       i:  (.message.usage.input_tokens // 0),
+       o:  (.message.usage.output_tokens // 0),
+       cc: (.message.usage.cache_creation_input_tokens // 0),
+       cr: (.message.usage.cache_read_input_tokens // 0)}]
     | . as $m
-    | [range(0; length) as $i |
-        select($m[$i].t == "assistant" and $i > 0) |
-        {dt: (($m[$i].ts | epoch) - ($m[$i-1].ts | epoch)), o: $m[$i].o}
+    | (length) as $n
+    | ([range(0; $n) | select($m[.].t == "user")] | last // 0) as $u
+    | $m[$u:] as $turn
+    | [range(0; $turn|length) as $i |
+        select($turn[$i].t == "assistant" and $i > 0) |
+        {dt: (($turn[$i].ts | epoch) - ($turn[$i-1].ts | epoch)),
+         o: $turn[$i].o, i: $turn[$i].i, cc: $turn[$i].cc, cr: $turn[$i].cr}
       ]
-    | map(select(.dt >= 0 and .dt < 600))
-    | (.[-1].dt // 0 | tostring) + " " + (.[-1].o // 0 | tostring)
+    | map(select(.dt >= 0 and .dt < 600)) as $valid
+    | {sec:  ($valid | map(.dt) | add // 0),
+       o:   ($valid | map(.o)  | add // 0),
+       i:   ($valid | map(.i)  | add // 0),
+       cc:  ($valid | map(.cc) | add // 0),
+       cr:  ($valid | map(.cr) | add // 0),
+       n_a: ([$turn[] | select(.t == "assistant")] | length)}
+    | "\(.sec) \(.o) \(.i) \(.cc) \(.cr) \(.n_a)"
   ' 2>/dev/null)
-  _TT_SEC=$(printf '%s' "$_T_SPEED" | awk '{printf "%.0f", $1+0}')
-  _TT_OUT=$(printf '%s' "$_T_SPEED" | awk '{printf "%.0f", $2+0}')
+  _TT_SEC=$(printf '%s' "$_T_DATA" | awk '{printf "%.0f", $1+0}')
+  _TT_OUT=$(printf '%s' "$_T_DATA" | awk '{printf "%.0f", $2+0}')
+  _TT_IN=$(printf  '%s' "$_T_DATA" | awk '{printf "%.0f", $3+0}')
+  _TT_CC=$(printf  '%s' "$_T_DATA" | awk '{printf "%.0f", $4+0}')
+  _TT_CR=$(printf  '%s' "$_T_DATA" | awk '{printf "%.0f", $5+0}')
+  _TT_NA=$(printf  '%s' "$_T_DATA" | awk '{printf "%.0f", $6+0}')
   if [ "${_TT_SEC:-0}" -gt 0 ] 2>/dev/null && [ "${_TT_OUT:-0}" -gt 0 ] 2>/dev/null; then
     _TT_TPM=$((_TT_OUT * 60 / _TT_SEC))
     TURN_SPEED="${CYAN}speed${RST} ${VAL}$(fmt_tok "$_TT_TPM")/min${RST}"
+  fi
+  if [ "${_TT_SEC:-0}" -gt 0 ] 2>/dev/null; then
+    TURN_TIME="${CYAN}time${RST} ${VAL}$(fmt_dur "$((_TT_SEC * 1000))")${RST}"
+  fi
+  if [ "${_TT_IN:-0}" -gt 0 ] || [ "${_TT_OUT:-0}" -gt 0 ] || [ "${_TT_CC:-0}" -gt 0 ] || [ "${_TT_CR:-0}" -gt 0 ]; then
+    _TT_COST=$(awk -v i="$_TT_IN" -v o="$_TT_OUT" -v cc="$_TT_CC" -v cr="$_TT_CR" \
+      'BEGIN{printf "%.4f", (i*3 + o*15 + cc*3.75 + cr*0.3)/1000000}')
+    TURN_COST="${CYAN}cost${RST} ${VAL}$(fmt_cost "$_TT_COST")${RST}"
+  fi
+  if [ "${_TT_NA:-0}" -gt 0 ]; then
+    TURN_MSG="${CYAN}msg${RST} ${VAL}1↑${_TT_NA}↓${RST}"
   fi
 fi
 
@@ -579,9 +611,9 @@ if [ "$TIER" = "wide" ]; then
   _R2_PREFIX="${CYAN}turn${RST}"
   _R2_TOKEN="$TURN_TOK_INNER"
   _DASH="${DIM}—${RST}"
-  _R2_MSG="${CYAN}msg${RST} ${_DASH}"
-  _R2_TIME="${CYAN}time${RST} ${_DASH}"
-  _R2_COST="${CYAN}cost${RST} ${_DASH}"
+  _R2_MSG="${TURN_MSG:-${CYAN}msg${RST} ${_DASH}}"
+  _R2_TIME="${TURN_TIME:-${CYAN}time${RST} ${_DASH}}"
+  _R2_COST="${TURN_COST:-${CYAN}cost${RST} ${_DASH}}"
 
   if [ -n "$_R2_TOKEN" ]; then
     R2="$(_vpad "$_R2_PREFIX" "$COL_PREFIX")${SEP}"
